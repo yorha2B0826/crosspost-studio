@@ -3,7 +3,7 @@
   "name": "Crosspost Studio",
   "version": "0.1.0",
   "minAppVersion": "1.11.5",
-  "description": "Prepare and save Obsidian notes as drafts across supported content platforms.",
+  "description": "Prepare and save notes as drafts across supported content platforms.",
   "author": "yorha2B0826",
   "authorUrl": "https://github.com/yorha2B0826",
   "isDesktopOnly": true
