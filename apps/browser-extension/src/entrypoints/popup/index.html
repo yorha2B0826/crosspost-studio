@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Crosspost Studio</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="popup-shell">
+      <header class="brand">
+        <div>
+          <p class="eyebrow">LOCAL DRAFT BRIDGE</p>
+          <h1>Crosspost Studio</h1>
+        </div>
+        <span id="version" class="version"></span>
+      </header>
+
+      <section id="connection-card" class="card connection-card" data-connected="false">
+        <div class="section-heading">
+          <div>
+            <p class="section-label">连接状态</p>
+            <h2 id="connection-label">正在检查…</h2>
+          </div>
+          <span class="status-dot" aria-hidden="true"></span>
+        </div>
+        <output id="status">正在读取 Obsidian 状态…</output>
+        <div class="status-footer">
+          <time id="status-time"></time>
+          <button id="reconnect" class="text-button" type="button">重新连接</button>
+        </div>
+      </section>
+
+      <section class="card setup-card">
+        <div class="section-heading compact">
+          <div>
+            <p class="section-label">本机桥接</p>
+            <h2>Obsidian 配对</h2>
+          </div>
+          <span id="configured-label" class="quiet-badge">未配置</span>
+        </div>
+
+        <div class="form-grid">
+          <label>
+            <span>本地端口</span>
+            <input
+              id="port"
+              inputmode="numeric"
+              min="1024"
+              max="65535"
+              type="number"
+              value="27124"
+            />
+          </label>
+          <label>
+            <span>配对密钥</span>
+            <input
+              id="pairing-key"
+              autocomplete="off"
+              placeholder="从 Obsidian 设置复制"
+              type="password"
+            />
+          </label>
+        </div>
+        <p id="pairing-help" class="field-help">
+          密钥只保存在本机扩展中，用于验证 127.0.0.1 上的 Obsidian。
+        </p>
+        <button id="save" class="primary-button" type="button">保存并连接</button>
+      </section>
+
+      <section class="card platform-section">
+        <div class="section-heading compact">
+          <div>
+            <p class="section-label">按需授权</p>
+            <h2>平台权限</h2>
+          </div>
+          <span id="permission-summary" class="quiet-badge">0 / 5</span>
+        </div>
+        <div class="platform-list">
+          <button class="platform-card" data-platform="zhihu" type="button">
+            <span>
+              <strong>知乎</strong>
+              <small>打开并填写可见的草稿编辑器</small>
+            </span>
+            <span class="permission-state">检查中</span>
+          </button>
+          <button class="platform-card" data-platform="juejin" type="button">
+            <span>
+              <strong>掘金</strong>
+              <small>打开并填写可见的草稿编辑器</small>
+            </span>
+            <span class="permission-state">检查中</span>
+          </button>
+          <button class="platform-card" data-platform="csdn" type="button">
+            <span>
+              <strong>CSDN</strong>
+              <small>填写 Markdown 编辑器并等待自动保存</small>
+            </span>
+            <span class="permission-state">检查中</span>
+          </button>
+          <button class="platform-card" data-platform="oschina" type="button">
+            <span>
+              <strong>开源中国</strong>
+              <small>填写可见博客编辑器并等待草稿保存</small>
+            </span>
+            <span class="permission-state">检查中</span>
+          </button>
+          <button class="platform-card" data-platform="cnblogs" type="button">
+            <span>
+              <strong>博客园</strong>
+              <small>填写 Markdown 编辑器并等待草稿保存</small>
+            </span>
+            <span class="permission-state">检查中</span>
+          </button>
+        </div>
+      </section>
+
+      <footer>
+        不读取 Cookie，不持久化文章正文，不执行最终发布。
+      </footer>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

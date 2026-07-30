@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240" viewBox="0 0 640 240">
+  <rect width="640" height="240" rx="24" fill="#f0f5f2"/>
+  <rect x="40" y="72" width="160" height="96" rx="14" fill="#17663a"/>
+  <rect x="240" y="72" width="160" height="96" rx="14" fill="#315c9b"/>
+  <rect x="440" y="72" width="160" height="96" rx="14" fill="#9b5b31"/>
+  <path d="M200 120h40M400 120h40" stroke="#17211b" stroke-width="6"/>
+  <text x="120" y="128" fill="white" text-anchor="middle" font-family="sans-serif" font-size="22">Obsidian</text>
+  <text x="320" y="128" fill="white" text-anchor="middle" font-family="sans-serif" font-size="22">转换核心</text>
+  <text x="520" y="128" fill="white" text-anchor="middle" font-family="sans-serif" font-size="22">平台草稿</text>
+</svg>
