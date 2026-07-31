@@ -24,8 +24,6 @@ const permissionSummary = document.querySelector<HTMLElement>("#permission-summa
 const portInput = document.querySelector<HTMLInputElement>("#port");
 const reconnectButton = document.querySelector<HTMLButtonElement>("#reconnect");
 const saveButton = document.querySelector<HTMLButtonElement>("#save");
-const statusOutput = document.querySelector<HTMLOutputElement>("#status");
-const statusTime = document.querySelector<HTMLTimeElement>("#status-time");
 const versionOutput = document.querySelector<HTMLElement>("#version");
 
 let configured = false;
@@ -35,32 +33,14 @@ function i(key: string): string {
   return t(key, locale);
 }
 
-function formatUpdatedAt(value?: string): string {
-  if (!value) {
-    return i("connection.never");
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? i("connection.justNow")
-    : `${i("connection.updated")} ${date.toLocaleTimeString(locale === "zh-CN" ? "zh-CN" : "en", {
-        hour: "2-digit",
-        minute: "2-digit"
-      })}`;
-}
-
 function renderConnection(status?: ExtensionStatus): void {
   const connected = status?.connected ?? false;
+  const msg = status?.message ?? "";
   connectionCard?.setAttribute("data-connected", String(connected));
   connectionLabel?.replaceChildren(
-    document.createTextNode(connected ? i("connection.connected") : i("connection.waiting"))
+    document.createTextNode(connected ? msg || i("connection.connected") : msg || i("connection.waiting"))
   );
-  if (statusOutput) {
-    statusOutput.textContent = status?.message ?? i("connection.checkingStatus");
-  }
-  if (statusTime) {
-    statusTime.textContent = formatUpdatedAt(status?.updatedAt);
-    statusTime.dateTime = status?.updatedAt ?? "";
-  }
+  connectionLabel?.setAttribute("title", msg);
 }
 
 function renderConfiguration(isConfigured: boolean, port: number): void {
@@ -92,10 +72,9 @@ function renderConfiguration(isConfigured: boolean, port: number): void {
 
 function showInlineError(message: string): void {
   connectionCard?.setAttribute("data-connected", "error");
-  connectionLabel?.replaceChildren(document.createTextNode(i("connection.needsAction")));
-  if (statusOutput) {
-    statusOutput.textContent = message;
-  }
+  connectionLabel?.replaceChildren(
+    document.createTextNode(message || i("connection.needsAction"))
+  );
 }
 
 async function send(request: PopupRequest): Promise<PopupResponse> {
@@ -125,32 +104,26 @@ async function refreshStatus(): Promise<void> {
 
 async function refreshPermissions(): Promise<void> {
   let grantedCount = 0;
-  const buttons = document.querySelectorAll<HTMLButtonElement>("[data-platform]");
-  for (const button of buttons) {
-    const platform = button.dataset.platform as BrowserPlatform;
+  const chips = document.querySelectorAll<HTMLButtonElement>("[data-platform]");
+  for (const chip of chips) {
+    const platform = chip.dataset.platform as BrowserPlatform;
     const granted = await browser.permissions.contains({
       origins: PLATFORM_ORIGINS[platform]
     });
     grantedCount += granted ? 1 : 0;
-    button.dataset.enabled = String(granted);
-    const state = button.querySelector<HTMLElement>(".permission-state");
-    if (state) {
-      state.textContent = granted ? i("permissions.enabled") : i("permissions.checking");
-    }
-    button.setAttribute(
+    chip.dataset.enabled = String(granted);
+    chip.setAttribute(
       "aria-label",
       granted
-        ? `${button.querySelector("strong")?.textContent ?? platform} ${i("permissions.enabled")}`
-        : `${i("permissions.checking")} ${button.querySelector("strong")?.textContent ?? platform}`
+        ? `${chip.textContent} — ${i("permissions.enabled")}`
+        : `${i("permissions.checking")} ${chip.textContent}`
     );
   }
+  const total = chips.length;
   permissionSummary?.replaceChildren(
-    document.createTextNode(`${grantedCount} / ${buttons.length}`)
+    document.createTextNode(`${grantedCount}/${total}`)
   );
-  permissionSummary?.classList.toggle(
-    "is-ready",
-    grantedCount === buttons.length
-  );
+  permissionSummary?.classList.toggle("is-ready", grantedCount === total);
 }
 
 // --- Theme toggle ---

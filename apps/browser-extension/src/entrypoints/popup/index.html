@@ -8,127 +8,79 @@
   </head>
   <body>
     <main class="popup-shell">
-      <header class="brand">
-        <div>
-          <p class="eyebrow" data-i18n="app.subtitle">LOCAL DRAFT BRIDGE</p>
-          <h1 data-i18n="app.title">Crosspost Studio</h1>
-        </div>
-        <div class="brand-end">
-          <select id="theme-select" class="theme-select" aria-label="Theme">
-            <option value="auto" data-i18n="theme.auto">Auto</option>
-            <option value="light" data-i18n="theme.light">Light</option>
-            <option value="dark" data-i18n="theme.dark">Dark</option>
-          </select>
+      <!-- Compact top bar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <h1 class="topbar-title">Crosspost Studio</h1>
           <span id="version" class="version"></span>
         </div>
+        <select id="theme-select" class="theme-select" aria-label="Theme">
+          <option value="auto" data-i18n="theme.auto">Auto</option>
+          <option value="light" data-i18n="theme.light">Light</option>
+          <option value="dark" data-i18n="theme.dark">Dark</option>
+        </select>
       </header>
 
-      <section id="connection-card" class="card connection-card" data-connected="false">
-        <div class="section-heading">
-          <div>
-            <p class="section-label" data-i18n="connection.heading">Connection Status</p>
-            <h2 id="connection-label" data-i18n="connection.checking">Checking…</h2>
-          </div>
-          <span class="status-dot" aria-hidden="true"></span>
-        </div>
-        <output id="status" data-i18n="connection.checkingStatus">Reading Obsidian status…</output>
-        <div class="status-footer">
-          <time id="status-time"></time>
-          <button id="reconnect" class="text-button" type="button" data-i18n="connection.reconnect">Reconnect</button>
-        </div>
-      </section>
+      <!-- Inline connection status bar -->
+      <div id="connection-card" class="status-bar" data-connected="false">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="connection-label" class="status-label" data-i18n="connection.checking">Checking…</span>
+        <span class="status-spacer"></span>
+        <button id="reconnect" class="text-button" type="button" data-i18n="connection.reconnect">Reconnect</button>
+      </div>
 
-      <section class="card setup-card">
-        <div class="section-heading compact">
-          <div>
-            <p class="section-label" data-i18n="pairing.subtitle">Local Bridge</p>
-            <h2 data-i18n="pairing.heading">Obsidian Pairing</h2>
-          </div>
+      <!-- Collapsible pairing -->
+      <details class="pairing-details" id="pairing-details">
+        <summary class="pairing-summary">
+          <span class="pairing-summary-text">
+            <span data-i18n="pairing.heading">Obsidian Pairing</span>
+          </span>
           <span id="configured-label" class="quiet-badge" data-i18n="pairing.unconfigured">Not configured</span>
-        </div>
-
-        <div class="form-grid">
-          <label>
-            <span data-i18n="pairing.portLabel">Local Port</span>
-            <input
-              id="port"
-              inputmode="numeric"
-              min="1024"
-              max="65535"
-              type="number"
-              value="27124"
-            />
-          </label>
-          <label>
-            <span data-i18n="pairing.keyLabel">Pairing Key</span>
-            <input
-              id="pairing-key"
-              autocomplete="off"
-              placeholder="Paste from Obsidian settings"
-              type="password"
-            />
-          </label>
-        </div>
-        <p id="pairing-help" class="field-help" data-i18n="pairing.help">The key is only stored in this extension, used to authenticate Obsidian on 127.0.0.1.</p>
-        <button id="save" class="primary-button" type="button" data-i18n="pairing.save">Save &amp; Connect</button>
-      </section>
-
-      <section class="card platform-section">
-        <div class="section-heading compact">
-          <div>
-            <p class="section-label" data-i18n="permissions.subtitle">On-Demand Auth</p>
-            <h2 data-i18n="permissions.heading">Platform Permissions</h2>
+        </summary>
+        <div class="pairing-body">
+          <div class="form-grid">
+            <label>
+              <span data-i18n="pairing.portLabel">Port</span>
+              <input id="port" inputmode="numeric" min="1024" max="65535" type="number" value="27124" />
+            </label>
+            <label>
+              <span data-i18n="pairing.keyLabel">Key</span>
+              <input id="pairing-key" autocomplete="off" type="password" data-i18n-placeholder="pairing.keyPlaceholder" placeholder="Paste from Obsidian settings" />
+            </label>
           </div>
-          <span id="permission-summary" class="quiet-badge">0 / 5</span>
+          <p id="pairing-help" class="field-help" data-i18n="pairing.help">Key stored locally, auth on 127.0.0.1.</p>
+          <button id="save" class="primary-button" type="button" data-i18n="pairing.save">Save &amp; Connect</button>
         </div>
-        <div class="platform-list">
-          <button class="platform-card" data-platform="zhihu" type="button">
-            <span>
-              <strong data-i18n="zhihu.label">Zhihu</strong>
-              <small data-i18n="zhihu.desc">Opens and fills the visible draft editor</small>
-            </span>
-            <span class="permission-state" data-i18n="permissions.checking">Checking…</span>
-          </button>
-          <button class="platform-card" data-platform="juejin" type="button">
-            <span>
-              <strong data-i18n="juejin.label">Juejin</strong>
-              <small data-i18n="juejin.desc">Opens and fills the visible draft editor</small>
-            </span>
-            <span class="permission-state" data-i18n="permissions.checking">Checking…</span>
-          </button>
-          <button class="platform-card" data-platform="csdn" type="button">
-            <span>
-              <strong data-i18n="csdn.label">CSDN</strong>
-              <small data-i18n="csdn.desc">Fills the Markdown editor and waits for autosave</small>
-            </span>
-            <span class="permission-state" data-i18n="permissions.checking">Checking…</span>
-          </button>
-          <button class="platform-card" data-platform="oschina" type="button">
-            <span>
-              <strong data-i18n="oschina.label">OSChina</strong>
-              <small data-i18n="oschina.desc">Fills the visible blog editor and waits for draft save</small>
-            </span>
-            <span class="permission-state" data-i18n="permissions.checking">Checking…</span>
-          </button>
-          <button class="platform-card" data-platform="cnblogs" type="button">
-            <span>
-              <strong data-i18n="cnblogs.label">BlogsCN</strong>
-              <small data-i18n="cnblogs.desc">Fills the Markdown editor and waits for draft save</small>
-            </span>
-            <span class="permission-state" data-i18n="permissions.checking">Checking…</span>
-          </button>
-          <button class="platform-card" data-platform="jianshu" type="button">
-            <span>
-              <strong data-i18n="jianshu.label">Jian Shu</strong>
-              <small data-i18n="jianshu.desc">Opens and fills the visible rich-text draft editor</small>
-            </span>
-            <span class="permission-state" data-i18n="permissions.checking">Checking…</span>
-          </button>
-        </div>
-        <button id="grant-all" class="grant-all-button" type="button" data-i18n="permissions.grantAll">Grant All Platforms</button>
-      </section>
+      </details>
 
-      <footer data-i18n="footer">No cookies read. No article bodies persisted. No final publishing.</footer>
+      <!-- Platform permissions -->
+      <section class="platform-section">
+        <div class="section-heading">
+          <h2 class="section-title" data-i18n="permissions.heading">Platforms</h2>
+          <span id="permission-summary" class="quiet-badge">0/6</span>
+          <button id="grant-all" class="grant-all-link" type="button" data-i18n="permissions.grantAll">Grant all</button>
+        </div>
+        <div class="platform-grid">
+          <button class="platform-chip" data-platform="zhihu" type="button">
+            <span data-i18n="zhihu.label">Zhihu</span>
+          </button>
+          <button class="platform-chip" data-platform="juejin" type="button">
+            <span data-i18n="juejin.label">Juejin</span>
+          </button>
+          <button class="platform-chip" data-platform="csdn" type="button">
+            <span data-i18n="csdn.label">CSDN</span>
+          </button>
+          <button class="platform-chip" data-platform="oschina" type="button">
+            <span data-i18n="oschina.label">OSChina</span>
+          </button>
+          <button class="platform-chip" data-platform="cnblogs" type="button">
+            <span data-i18n="cnblogs.label">BlogsCN</span>
+          </button>
+          <button class="platform-chip" data-platform="jianshu" type="button">
+            <span data-i18n="jianshu.label">Jian Shu</span>
+          </button>
+        </div>
+      </section>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>
