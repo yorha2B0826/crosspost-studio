@@ -269,6 +269,25 @@ input:focus {
   cursor: default;
 }
 
+.grant-all-button {
+  background: transparent;
+  border: 1px dashed #a0b0a5;
+  border-radius: 8px;
+  color: #4e5951;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  margin-top: 10px;
+  padding: 8px;
+  width: 100%;
+}
+
+.grant-all-button:hover {
+  background: #eef4ef;
+  border-color: #17663a;
+  color: #17663a;
+}
+
 footer {
   line-height: 1.45;
   padding: 0 4px 2px;
@@ -330,6 +349,17 @@ footer {
   .platform-card[data-enabled="true"] {
     background: #1d3325;
     border-color: #31583e;
+  }
+
+  .grant-all-button {
+    border-color: #3a463d;
+    color: #9eaaa1;
+  }
+
+  .grant-all-button:hover {
+    background: #262e28;
+    border-color: #83c69b;
+    color: #83c69b;
   }
 
   .status-footer {
@@ -395,6 +425,17 @@ html[data-theme="dark"] .platform-card:hover {
 html[data-theme="dark"] .platform-card[data-enabled="true"] {
   background: #1d3325;
   border-color: #31583e;
+}
+
+html[data-theme="dark"] .grant-all-button {
+  border-color: #3a463d;
+  color: #9eaaa1;
+}
+
+html[data-theme="dark"] .grant-all-button:hover {
+  background: #262e28;
+  border-color: #83c69b;
+  color: #83c69b;
 }
 
 html[data-theme="dark"] .status-footer {

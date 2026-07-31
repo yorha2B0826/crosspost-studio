@@ -245,6 +245,19 @@ for (const button of document.querySelectorAll<HTMLButtonElement>("[data-platfor
   });
 }
 
+// --- Batch grant all platforms ---
+const grantAllButton = document.querySelector<HTMLButtonElement>("#grant-all");
+grantAllButton?.addEventListener("click", () => {
+  void (async () => {
+    const allOrigins = Object.values(PLATFORM_ORIGINS).flat();
+    const granted = await browser.permissions.request({ origins: allOrigins });
+    if (!granted) {
+      showInlineError(i("permissions.notGranted"));
+    }
+    await refreshPermissions();
+  })();
+});
+
 browser.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "local" && changes["crosspost.status"]) {
     renderConnection(changes["crosspost.status"].newValue as ExtensionStatus | undefined);
