@@ -7,7 +7,7 @@ import type {
 interface PlatformDomDefinition {
   contentMode: "adaptive" | "markdown" | "rich-html";
   editorSelectors: string[];
-  imageStrategy: "markdown-paste" | "rich-paste";
+  imageStrategy: "adaptive" | "markdown-paste" | "rich-paste";
   saveEvidenceSelectors: string[];
   saveEvidenceText: RegExp;
   titleSelectors: string[];
@@ -18,10 +18,90 @@ interface EmbeddedImage {
   token: string;
 }
 
+class InvalidInlineImageError extends Error {}
+
 const ZHIHU_IMPORT_FAILURE_IMAGE =
   "v2-4f89913ab376925632be5823a038f938";
 
 const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
+  "51cto": {
+    contentMode: "markdown",
+    editorSelectors: [
+      "textarea#content",
+      "textarea[name='content']",
+      ".bytemd-editor .CodeMirror textarea",
+      ".CodeMirror textarea",
+      ".cm-editor .cm-content[contenteditable='true']",
+      "textarea[aria-label*='Editor content']",
+      "textarea"
+    ],
+    imageStrategy: "markdown-paste",
+    saveEvidenceSelectors: [
+      "[class*='save-status']",
+      "[class*='draft-status']",
+      "[class*='autosave']",
+      ".el-message--success",
+      "[role='status']"
+    ],
+    saveEvidenceText: /草稿已保存|草稿保存成功|保存成功|自动保存成功|已保存/,
+    titleSelectors: [
+      "input#title",
+      "input[name='title']",
+      "input[placeholder*='标题']",
+      "textarea[placeholder*='标题']"
+    ]
+  },
+  baijiahao: {
+    contentMode: "rich-html",
+    editorSelectors: [
+      ".ProseMirror[contenteditable='true']",
+      "[contenteditable='true'][role='textbox']",
+      "[data-slate-editor='true'][contenteditable='true']",
+      ".edui-body-container[contenteditable='true']",
+      ".public-DraftEditor-content[contenteditable='true']"
+    ],
+    imageStrategy: "rich-paste",
+    saveEvidenceSelectors: [
+      "[class*='save-status']",
+      "[class*='draft-status']",
+      "[class*='autosave']",
+      ".ant-message-success",
+      "[role='status']"
+    ],
+    saveEvidenceText: /草稿已保存|草稿保存成功|保存成功|自动保存成功|已保存/,
+    titleSelectors: [
+      "input[placeholder*='标题']",
+      "textarea[placeholder*='标题']",
+      "input[class*='title']",
+      "textarea[class*='title']"
+    ]
+  },
+  bilibili: {
+    contentMode: "rich-html",
+    editorSelectors: [
+      ".ql-editor[contenteditable='true']",
+      ".ProseMirror[contenteditable='true']",
+      ".w-e-text[contenteditable='true']",
+      "[contenteditable='true'][role='textbox']",
+      "[class*='editor'] [contenteditable='true']"
+    ],
+    imageStrategy: "rich-paste",
+    saveEvidenceSelectors: [
+      "[class*='save-status']",
+      "[class*='draft-status']",
+      "[class*='autosave']",
+      "[class*='auto-save']",
+      "[role='status']"
+    ],
+    saveEvidenceText:
+      /草稿已保存|保存草稿成功|保存成功|自动保存成功|已自动保存|已保存/,
+    titleSelectors: [
+      "input[placeholder*='标题']",
+      "textarea[placeholder*='标题']",
+      "input[class*='title']",
+      "textarea[class*='title']"
+    ]
+  },
   jianshu: {
     contentMode: "rich-html",
     editorSelectors: [
@@ -106,7 +186,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       ".bytemd-editor .CodeMirror textarea",
       "textarea"
     ],
-    imageStrategy: "markdown-paste",
+    imageStrategy: "adaptive",
     saveEvidenceSelectors: [
       "[class*='save-status']",
       "[class*='draft-status']",
@@ -141,6 +221,88 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "input[name='title']",
       "input[placeholder*='标题']",
       "textarea[placeholder*='标题']",
+      "input[class*='title']"
+    ]
+  },
+  segmentfault: {
+    contentMode: "markdown",
+    editorSelectors: [
+      ".cm-editor .cm-content[contenteditable='true']",
+      ".CodeMirror textarea",
+      ".monaco-editor textarea.inputarea",
+      "textarea[name='text']",
+      "textarea[aria-label*='Editor content']",
+      "textarea"
+    ],
+    imageStrategy: "markdown-paste",
+    saveEvidenceSelectors: [
+      "[class*='save-status']",
+      "[class*='draft-status']",
+      "[class*='autosave']",
+      "[data-testid*='save']",
+      "[role='status']"
+    ],
+    saveEvidenceText: /草稿已保存|草稿保存成功|保存成功|自动保存成功|已保存/,
+    titleSelectors: [
+      "input[name='title']",
+      "input[placeholder*='标题']",
+      "textarea[placeholder*='标题']",
+      "input[class*='title']"
+    ]
+  },
+  tencentcloud: {
+    contentMode: "adaptive",
+    editorSelectors: [
+      ".CodeMirror textarea",
+      ".cm-editor .cm-content[contenteditable='true']",
+      ".monaco-editor textarea.inputarea",
+      ".ProseMirror[contenteditable='true']",
+      ".ql-editor[contenteditable='true']",
+      "[contenteditable='true'][role='textbox']",
+      "textarea[aria-label*='Editor content']",
+      "textarea[class*='editor']"
+    ],
+    imageStrategy: "adaptive",
+    saveEvidenceSelectors: [
+      "[class*='save-status']",
+      "[class*='draft-status']",
+      "[class*='autosave']",
+      "[class*='auto-save']",
+      "[role='status']"
+    ],
+    saveEvidenceText:
+      /草稿已保存|内容已自动保存|保存成功|自动保存成功|已自动保存|已保存/,
+    titleSelectors: [
+      "input[placeholder*='文章标题']",
+      "textarea[placeholder*='文章标题']",
+      "input[placeholder*='标题']",
+      "textarea[placeholder*='标题']",
+      "input[class*='title']"
+    ]
+  },
+  toutiao: {
+    contentMode: "rich-html",
+    editorSelectors: [
+      ".ProseMirror[contenteditable='true']",
+      "[contenteditable='true'][role='textbox']",
+      "[data-slate-editor='true'][contenteditable='true']",
+      ".public-DraftEditor-content[contenteditable='true']",
+      "[class*='editor'] [contenteditable='true']"
+    ],
+    imageStrategy: "rich-paste",
+    saveEvidenceSelectors: [
+      "[class*='save-status']",
+      "[class*='draft-status']",
+      "[class*='autosave']",
+      ".byte-toast",
+      "[role='status']"
+    ],
+    saveEvidenceText:
+      /已保存至草稿箱|草稿已保存|草稿保存成功|保存成功|自动保存成功|已保存/,
+    titleSelectors: [
+      "textarea[placeholder*='标题']",
+      "input[placeholder*='标题']",
+      "textarea[class*='title']",
       "input[class*='title']"
     ]
   },
@@ -219,12 +381,16 @@ function dataUrlToFile(dataUrl: string, name: string): File | undefined {
   if (!match?.[1] || !match[2]) {
     return undefined;
   }
-  const binary = atob(match[2]);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
+  try {
+    const binary = atob(match[2]);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return new File([bytes], name, { type: match[1] });
+  } catch {
+    return undefined;
   }
-  return new File([bytes], name, { type: match[1] });
 }
 
 function extensionForMimeType(mimeType: string): string {
@@ -244,11 +410,10 @@ export function extractEmbeddedImages(
   html: string,
   jobId: string
 ): { html: string; images: EmbeddedImage[] } {
-  const template = document.createElement("template");
-  template.innerHTML = html;
+  const parsed = new DOMParser().parseFromString(html, "text/html");
   const images: EmbeddedImage[] = [];
   for (const [index, image] of Array.from(
-    template.content.querySelectorAll<HTMLImageElement>("img[src^='data:image/']")
+    parsed.body.querySelectorAll<HTMLImageElement>("img[src^='data:image/']")
   ).entries()) {
     const token = `CROSSPOST_IMAGE_${jobId.replaceAll("-", "")}_${index}`;
     const mimeType = image.src.slice(5, image.src.indexOf(";"));
@@ -262,7 +427,7 @@ export function extractEmbeddedImages(
     image.replaceWith(document.createTextNode(token));
     images.push({ file, token });
   }
-  return { html: template.innerHTML, images };
+  return { html: parsed.body.innerHTML, images };
 }
 
 export function extractEmbeddedMarkdownImages(
@@ -290,9 +455,15 @@ export function extractEmbeddedMarkdownImages(
 }
 
 export function htmlToPlainText(html: string): string {
-  const template = document.createElement("template");
-  template.innerHTML = html;
-  return template.content.textContent ?? "";
+  return new DOMParser().parseFromString(html, "text/html").body.textContent ?? "";
+}
+
+function replaceEditorHtml(editor: HTMLElement, html: string): void {
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  const nodes = Array.from(parsed.body.childNodes, (node) =>
+    document.importNode(node, true)
+  );
+  editor.replaceChildren(...nodes);
 }
 
 function findTokenRange(editor: HTMLElement, token: string): Range | undefined {
@@ -349,7 +520,7 @@ async function waitFor(
   });
 }
 
-function isResolvedZhihuImage(image: HTMLImageElement): boolean {
+function isResolvedRichEditorImage(image: HTMLImageElement): boolean {
   return (
     image.complete &&
     image.naturalWidth > 0 &&
@@ -406,13 +577,13 @@ async function pasteImageAtToken(
       );
       return (
         uploadedImages.length > imageCount &&
-        uploadedImages.some(isResolvedZhihuImage)
+        uploadedImages.some(isResolvedRichEditorImage)
       );
     },
     30_000
   );
   if (!uploaded) {
-    throw new Error("Zhihu did not confirm an uploaded image.");
+    throw new Error("The platform did not confirm a rich-text image upload.");
   }
 
   const currentEditor = resolveEditor();
@@ -544,9 +715,19 @@ async function insertIntoEditor(
   const useMarkdown =
     definition.contentMode === "markdown" ||
     (definition.contentMode === "adaptive" &&
-      editor instanceof HTMLTextAreaElement);
+      (editor instanceof HTMLTextAreaElement ||
+        Boolean(
+          editor.closest(
+            ".CodeMirror, .cm-editor, .monaco-editor, .bytemd-editor"
+          )
+        )));
   if (useMarkdown) {
     const prepared = extractEmbeddedMarkdownImages(payload.markdown, payload.jobId);
+    if (/data:image\//i.test(prepared.markdown)) {
+      throw new InvalidInlineImageError(
+        "The article contains an invalid inline image that could not be prepared for upload."
+      );
+    }
     if (editor instanceof HTMLTextAreaElement) {
       setNativeValue(editor, prepared.markdown);
     } else {
@@ -593,7 +774,7 @@ async function insertIntoEditor(
         }
       }
     }
-    if (definition.imageStrategy === "markdown-paste") {
+    if (definition.imageStrategy !== "rich-paste") {
       for (const image of prepared.images) {
         await pasteMarkdownImageAtToken(resolveEditor, image);
       }
@@ -602,9 +783,14 @@ async function insertIntoEditor(
   }
 
   const prepared =
-    definition.imageStrategy === "rich-paste"
+    definition.imageStrategy !== "markdown-paste"
       ? extractEmbeddedImages(payload.html, payload.jobId)
       : { html: payload.html, images: [] };
+  if (/data:image\//i.test(prepared.html)) {
+    throw new InvalidInlineImageError(
+      "The article contains an invalid inline image that could not be prepared for upload."
+    );
+  }
   let currentEditor = await clearEditor(resolveEditor);
   await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
   currentEditor = resolveEditor() ?? currentEditor;
@@ -627,12 +813,7 @@ async function insertIntoEditor(
   if (typeof DataTransfer !== "undefined" && typeof ClipboardEvent !== "undefined") {
     const transfer = new DataTransfer();
     transfer.setData("text/html", prepared.html);
-    transfer.setData(
-      "text/plain",
-      payload.platform === "zhihu"
-        ? htmlToPlainText(prepared.html)
-        : payload.markdown
-    );
+    transfer.setData("text/plain", htmlToPlainText(prepared.html));
     accepted = !currentEditor.dispatchEvent(
       new ClipboardEvent("paste", {
         bubbles: true,
@@ -664,7 +845,7 @@ async function insertIntoEditor(
   const inserted = document.execCommand("insertHTML", false, prepared.html);
   currentEditor = resolveEditor() ?? currentEditor;
   if (!inserted || !currentEditor.textContent?.trim()) {
-    currentEditor.innerHTML = prepared.html;
+    replaceEditorHtml(currentEditor, prepared.html);
     currentEditor.dispatchEvent(
       new InputEvent("input", {
         bubbles: true,
@@ -696,7 +877,13 @@ function saveEvidenceSignature(definition: PlatformDomDefinition): string {
     .flatMap((selector) =>
       Array.from(
         document.querySelectorAll<HTMLElement>(selector),
-        (element) => element.textContent?.trim() ?? ""
+        (element) =>
+          [
+            element.textContent?.trim() ?? "",
+            element.className,
+            element.getAttribute("aria-label") ?? "",
+            element.dataset.state ?? ""
+          ].join("\u0000")
       )
     )
     .join("\n");
@@ -729,6 +916,7 @@ async function waitForSaveEvidence(
       resolve(true);
     });
     observer.observe(document.body, {
+      attributes: true,
       characterData: true,
       childList: true,
       subtree: true
@@ -768,7 +956,10 @@ export async function applyDraftToVisibleEditor(
   } catch (error) {
     return {
       draftUrl: location.href,
-      errorCode: "editor-update-unconfirmed",
+      errorCode:
+        error instanceof InvalidInlineImageError
+          ? "invalid-inline-image"
+          : "editor-update-unconfirmed",
       message:
         error instanceof Error
           ? error.message

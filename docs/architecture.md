@@ -13,19 +13,23 @@ changed" but the in-flight task is not altered.
 A unified Markdown AST handles GFM, Obsidian image embeds, formulas, code, and
 compatibility diagnostics. Zhihu formulas are handed to the visible editor to
 generate native LaTeX nodes; platforms without native formula support (WeChat
-and others) receive high-resolution PNGs rasterized from MathJax SVG source,
-displayed at the body `1em` logical size. Output includes platform HTML,
-platform Markdown, a content hash, and content-addressed asset descriptors;
+and others) receive high-resolution PNGs rasterized from SVG produced by
+Obsidian's bundled MathJax renderer. Intrinsic dimensions and inline baseline
+metadata keep formulas aligned with surrounding text. Output includes platform
+HTML, platform Markdown, a content hash, and content-addressed asset descriptors;
 asset bytes live only in memory.
 
 ## Platform Boundaries
 
 - The WeChat adapter uploads body images and the cover via the official API
   inside Obsidian, then creates or updates a draft.
-- Zhihu, Juejin, Jian Shu, CSDN, OSChina, and BlogsCN jobs are handed to the
-  extension over the local bridge. The extension fetches one-shot assets, opens
-  or reuses a draft tab, injects a runtime content script, and waits for the
-  platform to display an explicit save status.
+- Browser-platform jobs are handed to the extension over the local bridge. The
+  extension fetches one-shot assets, opens or reuses a strictly allowlisted draft
+  URL, injects a runtime content script, and waits for the platform to display an
+  explicit save status.
+- A successful create is bound only after the resulting URL contains a reusable
+  draft identifier. A generic create URL is treated as `unknown`, preventing a
+  retry from creating a duplicate draft.
 - There is no transaction or rollback across platforms; each platform
   independently writes its binding and task state.
 
@@ -82,15 +86,17 @@ reconstruction.
 "源稿已更新"，但不会改变正在执行的任务。
 
 统一 Markdown AST 负责 GFM、Obsidian 图片嵌入、公式、代码和兼容性诊断。知乎公式交给
-可见编辑器生成原生 LaTeX 节点；微信等不支持原生公式的平台使用 SVG 源栅格化的高清
-PNG，并按正文 `1em` 逻辑尺寸显示。生成物包含平台 HTML、平台 Markdown、内容哈希和内容
-寻址资源描述；资源字节只存在内存映射中。
+可见编辑器生成原生 LaTeX 节点；微信等不支持原生公式的平台使用 Obsidian 内置 MathJax
+渲染器生成 SVG，再栅格化为高清 PNG。固有尺寸与行内基线信息用于保持公式和正文对齐。
+生成物包含平台 HTML、平台 Markdown、内容哈希和内容寻址资源描述；资源字节只存在内存映射中。
 
 ## 平台边界
 
 - 微信适配器在 Obsidian 中用官方 API 上传正文图片与封面，然后新增或更新草稿。
-- 知乎、掘金、简书、CSDN、开源中国和博客园 Job 经本地 bridge 交给扩展。扩展获取一次性资源、
-  打开或复用草稿页、注入运行时内容脚本并等待平台显示明确保存状态。
+- 浏览器平台 Job 经本地 bridge 交给扩展。扩展获取一次性资源、打开或复用经过严格白名单
+  校验的草稿页、注入运行时内容脚本并等待平台显示明确保存状态。
+- 首次创建只有在结果 URL 含有可复用的草稿标识后才会写入 binding；仍停留在通用新建页时
+  按 `unknown` 处理，避免重试造成重复草稿。
 - 平台之间没有事务或回滚；每个平台独立写入 binding 和任务状态。
 
 ## 协议

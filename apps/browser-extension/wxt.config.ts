@@ -12,8 +12,14 @@ export default defineConfig({
     name: "Crosspost Studio Bridge",
     optional_host_permissions: [
       "https://editor.csdn.net/*",
+      "https://baijiahao.baidu.com/*",
+      "https://blog.51cto.com/*",
+      "https://member.bilibili.com/*",
       "https://i.cnblogs.com/*",
       "https://my.oschina.net/*",
+      "https://mp.toutiao.com/*",
+      "https://segmentfault.com/*",
+      "https://cloud.tencent.com/*",
       "https://*.zhihu.com/*",
       "https://juejin.cn/*",
       "https://www.jianshu.com/*"

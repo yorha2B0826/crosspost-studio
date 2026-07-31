@@ -34,12 +34,18 @@ export interface FormulaRasterizerResult {
   width: number;
 }
 
+export type FormulaRenderer = (
+  latex: string,
+  display: boolean
+) => Promise<string> | string;
+
 export type MermaidRenderer = (source: string) => Promise<ResolvedAsset>;
 
 export interface RenderOptions {
   customCss?: string;
   metadata: RenderMetadata;
   platform: PlatformId;
+  renderFormula?: FormulaRenderer;
   rasterizeFormula?: (svg: string, display: boolean) => Promise<FormulaRasterizerResult>;
   renderMermaid?: MermaidRenderer;
   resolveAsset?: (source: string) => Promise<ResolvedAsset | undefined>;

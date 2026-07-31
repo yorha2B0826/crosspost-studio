@@ -38,6 +38,8 @@ $$
       {
         metadata: { title: "中文标题" },
         platform: "wechat",
+        renderFormula: (_latex, display) =>
+          `<svg xmlns="http://www.w3.org/2000/svg" width="${display ? 120 : 40}" height="${display ? 32 : 16}"></svg>`,
         rasterizeFormula: (_svg, display) => Promise.resolve({
           bytes: new Uint8Array([...PNG_HEADER, display ? 2 : 1]),
           height: display ? 32 : 16,

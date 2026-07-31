@@ -18,7 +18,13 @@ describe("bridge protocol", () => {
       "csdn",
       "oschina",
       "cnblogs",
-      "jianshu"
+      "jianshu",
+      "segmentfault",
+      "51cto",
+      "baijiahao",
+      "toutiao",
+      "bilibili",
+      "tencentcloud"
     ]);
     expect(BROWSER_PLATFORM_IDS).not.toContain("wechat");
   });

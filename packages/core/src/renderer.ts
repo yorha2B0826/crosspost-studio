@@ -13,7 +13,6 @@ import { unified } from "unified";
 
 import { sanitizeCustomCss } from "./css.js";
 import { sha256Hex } from "./hash.js";
-import { renderMathSvg } from "./math.js";
 import { preprocessObsidianMarkdown } from "./obsidian-markdown.js";
 import { getThemeCss } from "./themes.js";
 import type {
@@ -202,7 +201,10 @@ async function transformNode(
       };
     }
     try {
-      const formulaSvg = renderMathSvg(latex, display);
+      if (!options.renderFormula) {
+        throw new Error("Formula rendering is unavailable in this environment.");
+      }
+      const formulaSvg = await options.renderFormula(latex, display);
       const resolved: ResolvedAsset = options.rasterizeFormula
         ? {
             ...(await options.rasterizeFormula(formulaSvg, display)),

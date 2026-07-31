@@ -1,22 +1,30 @@
+import { createHash } from "node:crypto";
 import { cp, mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 
+import "./package-obsidian.mjs";
+
 const root = process.cwd();
 const releaseRoot = path.join(root, "dist");
-const pluginSource = path.join(root, "apps", "obsidian-plugin");
-const pluginRelease = path.join(releaseRoot, "obsidian");
-await mkdir(pluginRelease, { recursive: true });
-for (const file of ["main.js", "manifest.json", "styles.css"]) {
-  await cp(path.join(pluginSource, file), path.join(pluginRelease, file));
-}
 
 const extensionOutput = path.join(root, "apps", "browser-extension", ".output");
-const zip = (await readdir(extensionOutput)).find(
-  (file) => file.endsWith(".zip") && file.includes("chrome")
+const extensionManifest = JSON.parse(
+  await readFile(
+    path.join(extensionOutput, "chrome-mv3", "manifest.json"),
+    "utf8"
+  )
 );
-if (!zip) {
-  throw new Error("WXT did not produce a Chromium extension zip.");
+const zipCandidates = (await readdir(extensionOutput)).filter(
+  (file) =>
+    file.endsWith(".zip") &&
+    file.includes(`-${extensionManifest.version}-chrome`)
+);
+if (zipCandidates.length !== 1) {
+  throw new Error(
+    `Expected exactly one Chromium extension zip for version ${extensionManifest.version}, found ${zipCandidates.length}.`
+  );
 }
+const [zip] = zipCandidates;
 const browserRelease = path.join(releaseRoot, "chromium");
 await mkdir(browserRelease, { recursive: true });
 for (const stale of (await readdir(browserRelease)).filter((file) =>
@@ -24,12 +32,16 @@ for (const stale of (await readdir(browserRelease)).filter((file) =>
 )) {
   await unlink(path.join(browserRelease, stale));
 }
-const extensionManifest = JSON.parse(
-  await readFile(
-    path.join(extensionOutput, "chrome-mv3", "manifest.json"),
-    "utf8"
-  )
-);
 const releaseZip = `crosspost-studio-bridge-${extensionManifest.version}-chrome.zip`;
-await cp(path.join(extensionOutput, zip), path.join(browserRelease, releaseZip));
+const sourceZipPath = path.join(extensionOutput, zip);
+const releaseZipPath = path.join(browserRelease, releaseZip);
+await cp(sourceZipPath, releaseZipPath);
+const digest = (data) => createHash("sha256").update(data).digest("hex");
+const [sourceDigest, releaseDigest] = await Promise.all([
+  readFile(sourceZipPath).then(digest),
+  readFile(releaseZipPath).then(digest)
+]);
+if (sourceDigest !== releaseDigest) {
+  throw new Error("The packaged Chromium extension does not match the WXT output.");
+}
 console.log(`Release artifacts written to ${releaseRoot}`);

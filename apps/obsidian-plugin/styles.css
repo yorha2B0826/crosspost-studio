@@ -136,12 +136,17 @@
   min-height: var(--input-height);
 }
 
+.crosspost-copy-action[aria-busy="true"] {
+  color: var(--text-muted);
+}
+
 .crosspost-main {
+  align-items: start;
   display: grid;
-  flex: 1;
+  flex: 0 0 auto;
   gap: var(--size-4-3);
   grid-template-columns: minmax(0, 1fr) minmax(17rem, 21rem);
-  min-height: 32rem;
+  min-height: 0;
 }
 
 .crosspost-preview-panel,
@@ -178,14 +183,24 @@
   margin-top: var(--size-2-1);
 }
 
+.crosspost-preview-toolbar {
+  align-items: center;
+  display: flex;
+  gap: var(--size-4-2);
+  width: 100%;
+}
+
 .crosspost-preview-tabs {
   background: var(--background-secondary);
   border-radius: var(--radius-m);
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 2px;
+  overflow-x: auto;
   padding: 3px;
-  width: 100%;
+  flex: 1 1 0;
+  min-width: 0;
+  scrollbar-width: thin;
 }
 
 .crosspost-preview-tabs button {
@@ -194,7 +209,8 @@
   box-shadow: none;
   color: var(--text-muted);
   font-size: var(--font-ui-small);
-  flex: 1 1 6rem;
+  flex: 0 0 auto;
+  min-width: 5rem;
   padding: var(--size-2-2) var(--size-4-2);
 }
 
@@ -204,11 +220,49 @@
   color: var(--text-normal);
 }
 
+.crosspost-viewport-switch {
+  background: var(--background-secondary);
+  border-radius: var(--radius-m);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 3px;
+}
+
+.crosspost-viewport-switch button {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  padding: var(--size-2-2) var(--size-4-2);
+}
+
+.crosspost-viewport-switch button.is-active {
+  background: var(--background-primary);
+  box-shadow: var(--shadow-s);
+  color: var(--text-normal);
+}
+
+.crosspost-expand-preview {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: var(--size-2-2);
+  min-height: var(--input-height);
+  white-space: nowrap;
+}
+
+.crosspost-expand-preview svg {
+  height: 0.9rem;
+  width: 0.9rem;
+}
+
 .crosspost-preview-stage {
   background:
     linear-gradient(var(--background-secondary-alt), var(--background-secondary));
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
+  height: clamp(18rem, 34vh, 22rem);
   overflow: auto;
   padding: clamp(var(--size-4-3), 3vw, var(--size-4-6));
 }
@@ -222,6 +276,12 @@
   max-width: 46rem;
   min-height: 100%;
   overflow: hidden;
+  transition: max-width 160ms ease;
+  width: 100%;
+}
+
+.crosspost-preview-frame[data-viewport="mobile"] {
+  max-width: 23.4375rem;
 }
 
 .crosspost-preview {
@@ -229,6 +289,48 @@
   min-height: 28rem;
   overflow-wrap: anywhere;
   padding: clamp(1.25rem, 4vw, 2.5rem);
+}
+
+.crosspost-preview-modal {
+  display: flex;
+  flex-direction: column;
+  height: min(90vh, 64rem);
+  max-width: 92vw;
+  width: min(92vw, 78rem);
+}
+
+.crosspost-preview-modal .modal-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.crosspost-expanded-preview-header {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: space-between;
+  margin-bottom: var(--size-4-3);
+}
+
+.crosspost-expanded-preview-header .crosspost-preview-meta {
+  margin-top: 0;
+}
+
+.crosspost-expanded-preview-stage {
+  background:
+    linear-gradient(var(--background-secondary-alt), var(--background-secondary));
+  border: 1px solid var(--crosspost-border);
+  border-radius: var(--radius-l);
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(var(--size-4-3), 3vw, var(--size-4-6));
+}
+
+.crosspost-expanded-preview-frame {
+  min-height: 100%;
 }
 
 .crosspost-preview img {
@@ -513,11 +615,34 @@
     width: 100%;
   }
 
+  .crosspost-preview-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .crosspost-viewport-switch {
+    align-self: flex-start;
+  }
+
+  .crosspost-expand-preview {
+    align-self: flex-start;
+  }
+
   .crosspost-preview-tabs button {
-    flex: 1;
+    flex: 0 0 auto;
   }
 
   .crosspost-side {
     display: flex;
+  }
+
+  .crosspost-preview-stage {
+    height: 20rem;
+  }
+
+  .crosspost-preview-modal {
+    height: 94vh;
+    max-width: 96vw;
+    width: 96vw;
   }
 }

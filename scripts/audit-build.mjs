@@ -1,7 +1,8 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
+const MAX_SYNC_STANDARD_PLUGIN_BYTES = 5_000_000;
 
 // The Obsidian plugin directory is primarily English-speaking. An
 // English description of the plugin is required in the README.
@@ -60,8 +61,14 @@ if (JSON.stringify(requiredOrigins) !== JSON.stringify(["http://127.0.0.1/*"])) 
 
 const expectedOrigins = [
   "https://editor.csdn.net/*",
+  "https://baijiahao.baidu.com/*",
+  "https://blog.51cto.com/*",
+  "https://member.bilibili.com/*",
   "https://i.cnblogs.com/*",
   "https://my.oschina.net/*",
+  "https://mp.toutiao.com/*",
+  "https://segmentfault.com/*",
+  "https://cloud.tencent.com/*",
   "https://*.zhihu.com/*",
   "https://juejin.cn/*",
   "https://www.jianshu.com/*"
@@ -108,6 +115,36 @@ async function auditDirectory(directory) {
 
 await auditDirectory(extensionRoot);
 for (const file of ["main.js", "manifest.json", "styles.css"]) {
-  await auditFile(path.join(root, "apps", "obsidian-plugin", file));
+  const source = path.join(root, "apps", "obsidian-plugin", file);
+  const sourceData = await readFile(source);
+  await auditFile(source);
+  for (const packaged of [
+    path.join(root, "dist", file),
+    path.join(root, "dist", "obsidian", file)
+  ]) {
+    const packagedData = await readFile(packaged);
+    if (!sourceData.equals(packagedData)) {
+      throw new Error(`${path.relative(root, packaged)} does not match ${path.relative(root, source)}.`);
+    }
+    await auditFile(packaged);
+  }
+}
+const pluginBundle = path.join(root, "apps", "obsidian-plugin", "main.js");
+const pluginBundleSize = (await stat(pluginBundle)).size;
+if (pluginBundleSize > MAX_SYNC_STANDARD_PLUGIN_BYTES) {
+  throw new Error(
+    `Obsidian main.js is ${(pluginBundleSize / 1_000_000).toFixed(2)} MB; it must not exceed 5 MB for Sync Standard.`
+  );
+}
+const forbiddenRuntimePatterns = [
+  { label: "Node filesystem access", pattern: /require\(["'](?:node:)?fs(?:\/promises)?["']\)/ },
+  { label: "dynamic Function construction", pattern: /new Function\s*\(/ },
+  { label: "direct eval", pattern: /\beval\s*\(/ }
+];
+const pluginBundleText = await readFile(pluginBundle, "utf8");
+for (const { label, pattern } of forbiddenRuntimePatterns) {
+  if (pattern.test(pluginBundleText)) {
+    throw new Error(`Obsidian main.js contains ${label}.`);
+  }
 }
 console.log("Build audit passed: permissions are scoped and no credential signatures were found.");

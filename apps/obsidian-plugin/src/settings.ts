@@ -1,7 +1,13 @@
 import type { ThemeId } from "@crosspost/core";
 import type { JobState, PlatformId } from "@crosspost/protocol";
-import { Notice, PluginSettingTab, SecretComponent, Setting } from "obsidian";
-import type { SettingDefinitionItem } from "obsidian";
+import {
+  Modal,
+  Notice,
+  PluginSettingTab,
+  SecretComponent,
+  Setting
+} from "obsidian";
+import type { App, SettingDefinitionItem } from "obsidian";
 
 import type CrosspostStudioPlugin from "./main.js";
 
@@ -40,6 +46,38 @@ export const DEFAULT_SETTINGS: CrosspostSettings = {
   wechatAppId: "",
   wechatAppSecretId: "crosspost-wechat-app-secret"
 };
+
+class ConfirmCssSnippetDeletionModal extends Modal {
+  constructor(
+    app: App,
+    private readonly snippetName: string,
+    private readonly onConfirm: () => void
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    new Setting(this.contentEl)
+      .setName(`删除 CSS 片段“${this.snippetName}”？`)
+      .setDesc("此操作不可撤销。")
+      .setHeading();
+    new Setting(this.contentEl)
+      .addButton((button) => {
+        button.setButtonText("取消").onClick(() => this.close());
+      })
+      .addButton((button) => {
+        button.buttonEl.addClass("mod-warning");
+        button.setButtonText("删除").onClick(() => {
+          this.close();
+          this.onConfirm();
+        });
+      });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
 
 type SearchableSettingKey =
   | "bridgePort"
@@ -210,6 +248,10 @@ export class CrosspostSettingTab extends PluginSettingTab {
   }
 
   display(): void {
+    this.renderSettings();
+  }
+
+  private renderSettings(): void {
     const { containerEl } = this;
     containerEl.empty();
 
@@ -319,7 +361,7 @@ export class CrosspostSettingTab extends PluginSettingTab {
         dropdown.setValue(activeId);
         dropdown.onChange((value) => {
           this.plugin.settings.activeCssSnippetId = value;
-          void this.plugin.saveSettings().then(() => this.display());
+          void this.plugin.saveSettings().then(() => this.renderSettings());
         });
       });
 
@@ -342,7 +384,7 @@ export class CrosspostSettingTab extends PluginSettingTab {
       }
       void this.plugin.saveSettings().then(() => {
         new Notice(`CSS 片段 "${name}" 已保存。`);
-        this.display();
+        this.renderSettings();
       });
     });
 
@@ -353,17 +395,16 @@ export class CrosspostSettingTab extends PluginSettingTab {
       if (!name || !(name in this.plugin.settings.customCssSnippets)) {
         return;
       }
-      if (!confirm(`确认删除片段 "${name}" 吗？此操作不可撤销。`)) {
-        return;
-      }
-      delete this.plugin.settings.customCssSnippets[name];
-      if (this.plugin.settings.activeCssSnippetId === name) {
-        this.plugin.settings.activeCssSnippetId = "";
-      }
-      void this.plugin.saveSettings().then(() => {
-        new Notice(`CSS 片段 "${name}" 已删除。`);
-        this.display();
-      });
+      new ConfirmCssSnippetDeletionModal(this.app, name, () => {
+        delete this.plugin.settings.customCssSnippets[name];
+        if (this.plugin.settings.activeCssSnippetId === name) {
+          this.plugin.settings.activeCssSnippetId = "";
+        }
+        void this.plugin.saveSettings().then(() => {
+          new Notice(`CSS 片段 "${name}" 已删除。`);
+          this.renderSettings();
+        });
+      }).open();
     });
 
     snippetActions.createEl("button", { text: "设为当前使用" }).addEventListener("click", () => {
@@ -375,7 +416,7 @@ export class CrosspostSettingTab extends PluginSettingTab {
       this.plugin.settings.activeCssSnippetId = name;
       void this.plugin.saveSettings().then(() => {
         new Notice(`当前使用 CSS 片段 "${name}"。`);
-        this.display();
+        this.renderSettings();
       });
     });
 

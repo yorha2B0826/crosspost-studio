@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "[0-9]*.[0-9]*.[0-9]*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+      - uses: actions/setup-node@v4
+        with:
+          cache: pnpm
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm release:package
+      - name: Verify tag matches manifest version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          node --input-type=module -e
+          "import manifest from './manifest.json' with { type: 'json' };
+          if (manifest.version !== process.env.RELEASE_TAG)
+          throw new Error('Tag must exactly match manifest version.');"
+      - name: Attest release assets
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/obsidian/main.js
+            dist/obsidian/manifest.json
+            dist/obsidian/styles.css
+            dist/chromium/*.zip
+      - name: Create Obsidian plugin release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          dist/obsidian/main.js
+          dist/obsidian/manifest.json
+          dist/obsidian/styles.css
+          --generate-notes
+          --title "Crosspost Studio ${GITHUB_REF_NAME}"
+      - name: Create separate Chromium extension release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "browser-${GITHUB_REF_NAME}"
+          dist/chromium/*.zip
+          --target "${GITHUB_SHA}"
+          --title "Crosspost Studio browser extension ${GITHUB_REF_NAME}"
+          --notes "Chromium extension companion for Crosspost Studio ${GITHUB_REF_NAME}."
