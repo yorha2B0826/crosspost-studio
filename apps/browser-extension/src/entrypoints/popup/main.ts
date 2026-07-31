@@ -6,6 +6,7 @@ import {
   setTheme,
   t,
   type Locale,
+  type ThemeMode,
 } from "../../lib/i18n";
 import type {
   BrowserPlatform,
@@ -28,6 +29,7 @@ const versionOutput = document.querySelector<HTMLElement>("#version");
 
 let configured = false;
 const locale: Locale = detectLocale();
+const THEME_STORAGE_KEY = "crosspost.theme";
 
 function i(key: string): string {
   return t(key, locale);
@@ -127,23 +129,37 @@ async function refreshPermissions(): Promise<void> {
 }
 
 // --- Theme toggle ---
-function applyTheme(mode: "auto" | "light" | "dark"): void {
+function applyTheme(mode: ThemeMode): void {
   const resolved = resolveTheme(mode);
   setTheme(resolved);
 }
 
 const themeSelect = document.querySelector<HTMLSelectElement>("#theme-select");
-const savedTheme = (localStorage.getItem("crosspost.theme") as "auto" | "light" | "dark") ?? "auto";
-if (themeSelect) {
-  themeSelect.value = savedTheme;
-  themeSelect.addEventListener("change", () => {
-    const mode = themeSelect.value as "auto" | "light" | "dark";
-    localStorage.setItem("crosspost.theme", mode);
-    applyTheme(mode);
-  });
+let selectedTheme: ThemeMode = "auto";
+
+function isThemeMode(value: unknown): value is ThemeMode {
+  return value === "auto" || value === "light" || value === "dark";
 }
-applyTheme(savedTheme);
-onSystemThemeChange(() => applyTheme(savedTheme));
+
+async function initializeTheme(): Promise<void> {
+  const stored = await browser.storage.local.get(THEME_STORAGE_KEY);
+  const savedTheme = stored[THEME_STORAGE_KEY];
+  selectedTheme = isThemeMode(savedTheme) ? savedTheme : "auto";
+  if (themeSelect) {
+    themeSelect.value = selectedTheme;
+    themeSelect.addEventListener("change", () => {
+      const mode = themeSelect.value;
+      if (!isThemeMode(mode)) {
+        return;
+      }
+      selectedTheme = mode;
+      void browser.storage.local.set({ [THEME_STORAGE_KEY]: mode });
+      applyTheme(mode);
+    });
+  }
+  applyTheme(selectedTheme);
+  onSystemThemeChange(() => applyTheme(selectedTheme));
+}
 
 // --- Event listeners ---
 saveButton?.addEventListener("click", () => {
@@ -264,4 +280,4 @@ if (versionOutput) {
   versionOutput.textContent = `v${browser.runtime.getManifest().version}`;
 }
 
-void Promise.all([refreshStatus(), refreshPermissions()]);
+void Promise.all([refreshStatus(), refreshPermissions(), initializeTheme()]);

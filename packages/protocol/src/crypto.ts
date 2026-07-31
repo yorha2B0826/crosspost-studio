@@ -21,19 +21,19 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 
 export function generateSecretHex(byteLength = 32): string {
   const bytes = new Uint8Array(byteLength);
-  globalThis.crypto.getRandomValues(bytes);
+  crypto.getRandomValues(bytes);
   return bytesToHex(bytes);
 }
 
 export async function hmacSha256Hex(secretHex: string, message: string): Promise<string> {
-  const key = await globalThis.crypto.subtle.importKey(
+  const key = await crypto.subtle.importKey(
     "raw",
     toArrayBuffer(hexToBytes(secretHex)),
     { hash: "SHA-256", name: "HMAC" },
     false,
     ["sign"]
   );
-  const signature = await globalThis.crypto.subtle.sign(
+  const signature = await crypto.subtle.sign(
     "HMAC",
     key,
     toArrayBuffer(new TextEncoder().encode(message))
@@ -46,14 +46,14 @@ export async function verifyHmacSha256Hex(
   message: string,
   proofHex: string
 ): Promise<boolean> {
-  const key = await globalThis.crypto.subtle.importKey(
+  const key = await crypto.subtle.importKey(
     "raw",
     toArrayBuffer(hexToBytes(secretHex)),
     { hash: "SHA-256", name: "HMAC" },
     false,
     ["verify"]
   );
-  return globalThis.crypto.subtle.verify(
+  return crypto.subtle.verify(
     "HMAC",
     key,
     toArrayBuffer(hexToBytes(proofHex)),

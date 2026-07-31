@@ -11,6 +11,7 @@ import type {
   PublishJob
 } from "@crosspost/protocol";
 import { browser } from "wxt/browser";
+import { defineBackground } from "wxt/utils/define-background";
 import { hydrateJobAssets } from "../lib/assets";
 import { mergeExtensionConfiguration } from "../lib/configuration";
 import { IdempotencyLedger } from "../lib/idempotency";
@@ -35,8 +36,8 @@ const STATUS_KEY = "crosspost.status";
 const HEARTBEAT_INTERVAL_MS = 20_000;
 
 let socket: WebSocket | undefined;
-let heartbeat: ReturnType<typeof setInterval> | undefined;
-let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+let heartbeat: number | undefined;
+let reconnectTimer: number | undefined;
 let authenticated = false;
 const cancelledJobs = new Set<string>();
 const jobs = new IdempotencyLedger<
@@ -92,11 +93,11 @@ function sendCapabilities(): void {
 
 async function connect(): Promise<void> {
   if (reconnectTimer !== undefined) {
-    clearTimeout(reconnectTimer);
+    self.clearTimeout(reconnectTimer);
     reconnectTimer = undefined;
   }
   if (heartbeat !== undefined) {
-    clearInterval(heartbeat);
+    self.clearInterval(heartbeat);
     heartbeat = undefined;
   }
   const config = await getConfiguration();
@@ -131,11 +132,11 @@ async function connect(): Promise<void> {
   socket.onclose = () => {
     authenticated = false;
     if (heartbeat !== undefined) {
-      clearInterval(heartbeat);
+      self.clearInterval(heartbeat);
       heartbeat = undefined;
     }
     setStatus("与 Obsidian 的连接已断开，正在重试。");
-    reconnectTimer = setTimeout(() => {
+    reconnectTimer = self.setTimeout(() => {
       void connect();
     }, 5_000);
   };
@@ -168,7 +169,7 @@ async function handleBridgeMessage(raw: string, pairingKey: string): Promise<voi
     authenticated = true;
     setStatus("已连接到 Obsidian，可以接收草稿任务。", true);
     sendCapabilities();
-    heartbeat = setInterval(sendCapabilities, HEARTBEAT_INTERVAL_MS);
+    heartbeat = self.setInterval(sendCapabilities, HEARTBEAT_INTERVAL_MS);
     return;
   }
   if (message.type === "cancel-job") {
@@ -190,7 +191,7 @@ async function waitForTab(tabId: number, timeoutMs = 30_000): Promise<void> {
     return;
   }
   await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
+    const timeout = self.setTimeout(() => {
       browser.tabs.onUpdated.removeListener(listener);
       reject(new Error("The platform editor did not finish loading."));
     }, timeoutMs);
@@ -198,7 +199,7 @@ async function waitForTab(tabId: number, timeoutMs = 30_000): Promise<void> {
       if (updatedId !== tabId || change.status !== "complete") {
         return;
       }
-      clearTimeout(timeout);
+      self.clearTimeout(timeout);
       browser.tabs.onUpdated.removeListener(listener);
       resolve();
     };

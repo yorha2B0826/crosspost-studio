@@ -1,6 +1,6 @@
 {
   "name": "crosspost-studio",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Local-first Obsidian publishing studio for multi-platform content drafts.",
   "license": "MIT",
@@ -16,7 +16,7 @@
     "dev:extension": "pnpm --filter @crosspost/browser-extension dev",
     "dev:obsidian": "pnpm --filter @crosspost/obsidian-plugin dev",
     "lint": "eslint .",
-    "lint:obsidian": "eslint apps/obsidian-plugin/src --ignore-pattern '**/*.test.ts' --ignore-pattern '**/obsidian-test-stub.ts' --config eslint.obsidian.config.mjs",
+    "lint:obsidian": "eslint apps packages --config eslint.obsidian.config.mjs",
     "release:package": "pnpm build && pnpm --filter @crosspost/browser-extension zip && node scripts/package-release.mjs",
     "test": "vitest run",
     "test:watch": "vitest",

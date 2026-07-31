@@ -19,7 +19,7 @@ export async function hydrateJobAssets(
   let markdown = job.artifact.markdown;
 
   for (const descriptor of job.artifact.assets) {
-    const response = await fetch(`${job.assetBaseUrl}/${descriptor.id}`, {
+    const response = await self.fetch(`${job.assetBaseUrl}/${descriptor.id}`, {
       cache: "no-store",
       headers: {
         Authorization: `Bearer ${job.assetToken}`

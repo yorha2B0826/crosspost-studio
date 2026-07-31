@@ -1,8 +1,5 @@
 export type Locale = "en" | "zh-CN";
 
-const LOCALE_KEY = "crosspost.locale";
-const THEME_KEY = "crosspost.theme";
-
 const messages: Record<Locale, Record<string, string>> = {
   en: {
     "app.subtitle": "LOCAL DRAFT BRIDGE",
@@ -139,20 +136,12 @@ export function t(key: string, locale: Locale): string {
 }
 
 export function detectLocale(): Locale {
-  const stored = localStorage.getItem(LOCALE_KEY);
-  if (stored === "en" || stored === "zh-CN") {
-    return stored;
-  }
   for (const lang of navigator.languages) {
     if (lang.startsWith("zh")) {
       return "zh-CN";
     }
   }
   return "en";
-}
-
-export function saveLocale(locale: Locale): void {
-  localStorage.setItem(LOCALE_KEY, locale);
 }
 
 // --- Theme helpers ---
@@ -167,16 +156,6 @@ export function resolveTheme(mode: ThemeMode): "light" | "dark" {
 
 export function setTheme(resolved: "light" | "dark"): void {
   document.documentElement.setAttribute("data-theme", resolved);
-}
-
-export function getSavedTheme(): ThemeMode {
-  const stored = localStorage.getItem(THEME_KEY);
-  if (stored === "light" || stored === "dark" || stored === "auto") return stored;
-  return "auto";
-}
-
-export function saveTheme(mode: ThemeMode): void {
-  localStorage.setItem(THEME_KEY, mode);
 }
 
 export function onSystemThemeChange(callback: () => void): () => void {

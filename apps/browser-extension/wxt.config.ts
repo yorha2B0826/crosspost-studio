@@ -24,8 +24,7 @@ export default defineConfig({
       "https://juejin.cn/*",
       "https://www.jianshu.com/*"
     ],
-    permissions: ["scripting", "storage", "tabs"],
-    version: "1.0.0"
+    permissions: ["scripting", "storage", "tabs"]
   },
   srcDir: "src"
 });
