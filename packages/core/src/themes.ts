@@ -169,6 +169,87 @@ ${BASE_CSS}
 #crosspost-root pre { background: #082f49; color: #bae6fd; border-radius: 8px; }
 #crosspost-root table { border-color: #bae6fd; }
 #crosspost-root th { background: #f0f9ff; color: #0369a1; }
+`,
+  paper: `
+${BASE_CSS}
+#crosspost-root { font-family: "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; color: #333; font-size: 16px; line-height: 1.8; max-width: 40em; background: #fffef9; padding: 1em; }
+#crosspost-root h1, #crosspost-root h2, #crosspost-root h3 { font-weight: 700; line-height: 1.4; }
+#crosspost-root h1 { font-size: 2em; border-bottom: 2px solid #000; padding-bottom: 0.3em; margin-bottom: 0.7em; }
+#crosspost-root h2 { font-size: 1.4em; border-bottom: 1px solid #ccc; padding-bottom: 0.2em; margin-top: 1.5em; }
+#crosspost-root h3 { font-size: 1.1em; }
+#crosspost-root a { color: #000; box-shadow: inset 0 -2px 0 #ffd500; text-decoration: none; }
+#crosspost-root a:hover { background: #ffd500; color: #000; }
+#crosspost-root blockquote { border-left: 3px solid #000; background: #f8f8f5; color: #555; padding: 0.6em 1em; font-style: italic; margin: 1em 0; }
+#crosspost-root code { background: #f4f4ee; border: 1px solid #e0e0d8; border-radius: 2px; color: #555; font-size: 0.9em; padding: 0.1em 0.35em; }
+#crosspost-root pre { background: #f4f4ee; border: 1px solid #e0e0d8; color: #333; font-size: 0.9em; }
+#crosspost-root pre code { background: transparent; border: none; padding: 0; }
+#crosspost-root table { border-color: #ccc; }
+#crosspost-root th { background: #000; color: #fff; font-weight: 700; }
+#crosspost-root hr { border: none; border-top: 2px solid #000; margin: 1.5em 0; }
+`,
+  cherry: `
+${BASE_CSS}
+#crosspost-root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: #4a1a2e; }
+#crosspost-root h1, #crosspost-root h2, #crosspost-root h3 { color: #8b1a3b; line-height: 1.35; }
+#crosspost-root h1 { background: linear-gradient(135deg, #fce4ec, #f8bbd0); border-radius: 12px; padding: 0.5em 0.7em; text-align: center; }
+#crosspost-root h2 { border-bottom: 3px solid #f06292; padding-bottom: 0.2em; }
+#crosspost-root h3 { color: #c2185b; }
+#crosspost-root a { color: #c2185b; font-weight: 500; text-decoration-color: #f48fb1; }
+#crosspost-root blockquote { background: #fce4ec; border-left: 4px solid #e91e63; border-radius: 0 8px 8px 0; color: #6a1b3a; padding: 0.8em 1.1em; }
+#crosspost-root code { background: #fce4ec; border-radius: 4px; color: #ad1457; padding: 0.12em 0.35em; }
+#crosspost-root pre { background: #3e0d1c; color: #f8bbd0; border-radius: 10px; }
+#crosspost-root table { border-color: #f8bbd0; }
+#crosspost-root th { background: #fce4ec; color: #880e4f; }
+#crosspost-root ul > li::marker { color: #e91e63; }
+`,
+  forest: `
+${BASE_CSS}
+#crosspost-root { font-family: "Lora", Georgia, "Noto Serif CJK SC", "Songti SC", serif; color: #2d3a1f; line-height: 1.8; }
+#crosspost-root h1, #crosspost-root h2, #crosspost-root h3 { color: #1e2c0d; font-weight: 600; }
+#crosspost-root h1 { font-size: 2em; border-bottom: 4px double #4a7c2e; padding-bottom: 0.3em; }
+#crosspost-root h2 { border-left: 5px solid #4a7c2e; padding-left: 0.6em; }
+#crosspost-root h3 { color: #3b5e1f; }
+#crosspost-root a { color: #4a7c2e; font-weight: 500; text-decoration-color: #a3c98a; }
+#crosspost-root blockquote { background: #f4f9ee; border: 1px solid #cfe2bc; border-left: 4px solid #6da34d; border-radius: 0 6px 6px 0; color: #3b521f; padding: 0.8em 1em; }
+#crosspost-root code { background: #f0f6e8; border: 1px solid #d5e8c4; border-radius: 3px; color: #3b5e1f; padding: 0.12em 0.4em; }
+#crosspost-root pre { background: #1a2310; color: #d5e8c4; border-radius: 8px; }
+#crosspost-root table { border-color: #d5e8c4; }
+#crosspost-root th { background: #f0f6e8; color: #2d4a14; }
+#crosspost-root hr { border: none; border-top: 2px solid #cfe2bc; }
+`,
+  mono: `
+${BASE_CSS}
+#crosspost-root { font-family: "IBM Plex Mono", "Source Code Pro", "Cascadia Code", "Courier New", "PingFang SC", monospace; color: #111; font-size: 15px; line-height: 1.7; }
+#crosspost-root h1, #crosspost-root h2, #crosspost-root h3 { font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+#crosspost-root h1 { font-size: 1.6em; border-bottom: 3px solid #111; padding-bottom: 0.3em; }
+#crosspost-root h2 { font-size: 1.2em; background: #111; color: #fff; display: inline-block; padding: 0.15em 0.5em; }
+#crosspost-root h3 { font-size: 1em; border-bottom: 1px dashed #999; padding-bottom: 0.15em; }
+#crosspost-root a { color: #111; border-bottom: 1px solid #111; text-decoration: none; }
+#crosspost-root a:hover { background: #111; color: #fff; }
+#crosspost-root blockquote { border: 1px solid #ccc; border-left: 8px solid #111; color: #444; padding: 0.7em 1em; }
+#crosspost-root code { background: #111; color: #eee; border-radius: 0; font-size: 0.88em; padding: 0.1em 0.4em; }
+#crosspost-root pre { background: #111; color: #eee; border-radius: 0; border: 2px solid #111; }
+#crosspost-root pre code { background: transparent; padding: 0; }
+#crosspost-root table { border: 2px solid #111; }
+#crosspost-root th { background: #111; color: #fff; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+#crosspost-root th, #crosspost-root td { border: 1px solid #666; }
+#crosspost-root hr { border: none; border-top: 2px solid #111; }
+`,
+  vintage: `
+${BASE_CSS}
+#crosspost-root { font-family: "IM Fell English", "Noto Serif CJK SC", "Songti SC", Georgia, serif; color: #3e3232; font-size: 17px; line-height: 1.85; background: #fdf6e3; padding: 1em; }
+#crosspost-root h1, #crosspost-root h2, #crosspost-root h3 { color: #5c3a21; font-weight: 400; }
+#crosspost-root h1 { font-size: 2.1em; text-align: center; border: 3px double #8b6914; border-left: none; border-right: none; padding: 0.4em 0; margin-bottom: 0.7em; }
+#crosspost-root h2 { font-size: 1.4em; border-bottom: 1px dotted #8b6914; padding-bottom: 0.2em; }
+#crosspost-root h2::first-letter { font-size: 1.3em; color: #8b6914; }
+#crosspost-root a { color: #8b6914; text-decoration: underline wavy #c9a96e; }
+#crosspost-root blockquote { background: #faf3e0; border: 1px solid #e0caa2; padding: 0.7em 1.2em; color: #5c4a3a; font-style: italic; }
+#crosspost-root blockquote::before { content: "❝ "; color: #c9a96e; font-size: 1.4em; }
+#crosspost-root code { background: #f5e9d3; border: 1px solid #e0caa2; border-radius: 3px; color: #5c3a21; padding: 0.1em 0.4em; font-family: "Source Code Pro", monospace; font-size: 0.88em; }
+#crosspost-root pre { background: #3e3232; color: #f5e9d3; border: 1px solid #8b6914; border-radius: 4px; }
+#crosspost-root table { border-color: #d4c4a8; }
+#crosspost-root th { background: #5c3a21; color: #fdf6e3; font-weight: 500; }
+#crosspost-root hr { border: none; border-top: 1px dotted #8b6914; margin: 1.5em 0; }
 `
 };
 

@@ -61,7 +61,12 @@ export type ThemeId =
   | "fresh"
   | "dark"
   | "zen"
-  | "ocean";
+  | "ocean"
+  | "paper"
+  | "cherry"
+  | "forest"
+  | "mono"
+  | "vintage";
 
 export interface PreflightContext {
   artifact: PublicationArtifact;

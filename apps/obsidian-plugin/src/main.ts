@@ -56,7 +56,8 @@ import {
 
 interface SourceSnapshot {
   customCss?: string;
-  customCssSnippet?: string;
+  customCssSnippets: Record<string, string>;
+  activeCssSnippetId: string;
   file: TFile;
   metadata: CrosspostMetadata;
   resolver: ObsidianAssetResolver;
@@ -394,8 +395,9 @@ export default class CrosspostStudioPlugin extends Plugin {
       }
     }
     return {
+      activeCssSnippetId: this.settings.activeCssSnippetId,
       customCss,
-      customCssSnippet: this.settings.customCssSnippet || undefined,
+      customCssSnippets: { ...this.settings.customCssSnippets },
       file,
       metadata,
       resolver: new ObsidianAssetResolver(this.app, file),
@@ -408,8 +410,12 @@ export default class CrosspostStudioPlugin extends Plugin {
     platform: PlatformId,
     theme: ThemeId
   ): Promise<PreparedPlatform> {
+    const activeSnippetCss =
+      snapshot.activeCssSnippetId
+        ? snapshot.customCssSnippets[snapshot.activeCssSnippetId]
+        : undefined;
     const combinedCustomCss = [
-      snapshot.customCssSnippet,
+      activeSnippetCss,
       snapshot.customCss
     ]
       .filter(Boolean)

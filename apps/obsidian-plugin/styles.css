@@ -460,6 +460,36 @@
   font-size: var(--font-ui-smaller);
 }
 
+.crosspost-css-snippet-field {
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  margin-top: var(--size-4-2);
+  width: 100%;
+}
+
+.crosspost-snippet-name-input {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+  margin-top: var(--size-4-2);
+  outline: none;
+  padding: var(--size-4-2) var(--size-4-3);
+  width: 100%;
+}
+
+.crosspost-snippet-name-input:focus {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.15);
+}
+
+.crosspost-snippet-actions {
+  display: flex;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-2);
+}
+
 @media (max-width: 640px) {
   .crosspost-view {
     padding: var(--size-4-3);

@@ -6,9 +6,10 @@ import type { SettingDefinitionItem } from "obsidian";
 import type CrosspostStudioPlugin from "./main.js";
 
 export interface CrosspostSettings {
+  activeCssSnippetId: string;
   bridgePort: number;
   customCssPath: string;
-  customCssSnippet: string;
+  customCssSnippets: Record<string, string>;
   pairingSecretId: string;
   publicationStates: Record<
     string,
@@ -29,9 +30,10 @@ export interface CrosspostSettings {
 }
 
 export const DEFAULT_SETTINGS: CrosspostSettings = {
+  activeCssSnippetId: "",
   bridgePort: 27_124,
   customCssPath: "",
-  customCssSnippet: "",
+  customCssSnippets: {},
   pairingSecretId: "crosspost-studio-bridge-key",
   publicationStates: {},
   theme: "minimal",
@@ -42,7 +44,6 @@ export const DEFAULT_SETTINGS: CrosspostSettings = {
 type SearchableSettingKey =
   | "bridgePort"
   | "customCssPath"
-  | "customCssSnippet"
   | "theme"
   | "wechatAppId";
 
@@ -66,12 +67,17 @@ export class CrosspostSettingTab extends PluginSettingTab {
               options: {
                 academic: "学术",
                 bold: "粗犷",
+                cherry: "樱花",
                 dark: "暗夜",
                 elegant: "典雅",
+                forest: "森林",
                 fresh: "清新",
                 minimal: "简约",
+                mono: "等宽",
                 ocean: "海洋",
+                paper: "白纸",
                 tech: "科技",
+                vintage: "古典",
                 warm: "温暖",
                 zen: "禅意"
               },
@@ -89,15 +95,6 @@ export class CrosspostSettingTab extends PluginSettingTab {
             },
             desc: "可选：仓库内的 CSS 文件。导出时只保留安全且限定范围的属性。",
             name: "自定义 CSS 文件"
-          },
-          {
-            control: {
-              key: "customCssSnippet",
-              placeholder: "#crosspost-root h1 { font-size: 2em; }",
-              type: "textarea"
-            },
-            desc: "直接撰写 CSS 片段，会与文件 CSS 合并。优先级高于预设主题。",
-            name: "内联 CSS 片段"
           }
         ],
         type: "group"
@@ -189,12 +186,17 @@ export class CrosspostSettingTab extends PluginSettingTab {
       const validThemes = new Set([
         "academic",
         "bold",
+        "cherry",
         "dark",
         "elegant",
+        "forest",
         "fresh",
         "minimal",
+        "mono",
         "ocean",
+        "paper",
         "tech",
+        "vintage",
         "warm",
         "zen"
       ]);
@@ -225,12 +227,17 @@ export class CrosspostSettingTab extends PluginSettingTab {
           .addOptions({
             academic: "学术",
             bold: "粗犷",
+            cherry: "樱花",
             dark: "暗夜",
             elegant: "典雅",
+            forest: "森林",
             fresh: "清新",
             minimal: "简约",
+            mono: "等宽",
             ocean: "海洋",
+            paper: "白纸",
             tech: "科技",
+            vintage: "古典",
             warm: "温暖",
             zen: "禅意"
           })
@@ -254,22 +261,123 @@ export class CrosspostSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
-      .setName("内联 CSS 片段")
-      .setDesc("直接在此撰写 CSS。优先级高于文件与预设主题。仅接受 #crosspost-root 作用域内的安全属性。")
-      .addTextArea((text) => {
-        text
-          .setPlaceholder(
-            "#crosspost-root h1 { font-size: 2em; color: #4a90d9; }\n#crosspost-root blockquote { border-left-color: #e8c84a; }"
-          )
-          .setValue(this.plugin.settings.customCssSnippet)
-          .onChange(async (value) => {
-            this.plugin.settings.customCssSnippet = value;
-            await this.plugin.saveSettings();
-          });
-        text.inputEl.rows = 6;
-        text.inputEl.addClass("crosspost-css-snippet-field");
+    // --- CSS snippet manager ---
+    const snippetContainer = containerEl.createDiv();
+    const snippetIds = Object.keys(this.plugin.settings.customCssSnippets);
+    const activeId = this.plugin.settings.activeCssSnippetId || (snippetIds[0] ?? "");
+
+    const snippetTextarea = snippetContainer.createEl("textarea", {
+      attr: {
+        placeholder:
+          "#crosspost-root h1 { font-size: 2em; color: #4a90d9; }\n#crosspost-root blockquote { border-left-color: #e8c84a; }",
+        rows: "8"
+      },
+      cls: "crosspost-css-snippet-field"
+    });
+
+    const snippetNameInput = snippetContainer.createEl("input", {
+      attr: { placeholder: "输入片段名称 (a-z, 0-9, -)" },
+      cls: "crosspost-snippet-name-input",
+      type: "text"
+    });
+
+    new Setting(snippetContainer)
+      .setName("CSS 片段")
+      .setDesc("管理命名 CSS 片段。保存后可设为当前使用，优先级高于文件 CSS 与预设主题。");
+
+    new Setting(snippetContainer)
+      .setName("选择/管理片段")
+      .addDropdown((dropdown) => {
+        dropdown.selectEl.addClass("crosspost-snippet-selector");
+        dropdown.addOption("__new__", "（新建片段…）");
+        for (const id of snippetIds) {
+          dropdown.addOption(id, id);
+        }
+        dropdown.onChange((value) => {
+          if (value === "__new__") {
+            snippetNameInput.value = "";
+            snippetTextarea.value = "";
+            snippetNameInput.focus();
+            return;
+          }
+          snippetNameInput.value = value;
+          snippetTextarea.value = this.plugin.settings.customCssSnippets[value] ?? "";
+        });
+        if (snippetIds.length > 0 && activeId) {
+          dropdown.setValue(activeId);
+        }
       });
+
+    new Setting(snippetContainer)
+      .setName("当前使用")
+      .setDesc(activeId ? `正在使用片段 "${activeId}"` : "未选择活动片段")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("", "（不使用片段）");
+        for (const id of snippetIds) {
+          dropdown.addOption(id, id);
+        }
+        dropdown.setValue(activeId);
+        dropdown.onChange((value) => {
+          this.plugin.settings.activeCssSnippetId = value;
+          void this.plugin.saveSettings().then(() => this.display());
+        });
+      });
+
+    if (activeId) {
+      snippetNameInput.value = activeId;
+      snippetTextarea.value = this.plugin.settings.customCssSnippets[activeId] ?? "";
+    }
+
+    const snippetActions = snippetContainer.createDiv({ cls: "crosspost-snippet-actions" });
+
+    snippetActions.createEl("button", { text: "保存片段" }).addEventListener("click", () => {
+      const name = snippetNameInput.value.trim();
+      if (!/^[a-z0-9-]+$/.test(name)) {
+        new Notice("片段名称只能使用小写字母、数字和连字符。");
+        return;
+      }
+      this.plugin.settings.customCssSnippets[name] = snippetTextarea.value;
+      if (!this.plugin.settings.activeCssSnippetId) {
+        this.plugin.settings.activeCssSnippetId = name;
+      }
+      void this.plugin.saveSettings().then(() => {
+        new Notice(`CSS 片段 "${name}" 已保存。`);
+        this.display();
+      });
+    });
+
+    const delBtn = snippetActions.createEl("button", { text: "删除片段" });
+    delBtn.classList.add("mod-warning");
+    delBtn.addEventListener("click", () => {
+      const name = snippetNameInput.value.trim() || activeId;
+      if (!name || !(name in this.plugin.settings.customCssSnippets)) {
+        return;
+      }
+      if (!confirm(`确认删除片段 "${name}" 吗？此操作不可撤销。`)) {
+        return;
+      }
+      delete this.plugin.settings.customCssSnippets[name];
+      if (this.plugin.settings.activeCssSnippetId === name) {
+        this.plugin.settings.activeCssSnippetId = "";
+      }
+      void this.plugin.saveSettings().then(() => {
+        new Notice(`CSS 片段 "${name}" 已删除。`);
+        this.display();
+      });
+    });
+
+    snippetActions.createEl("button", { text: "设为当前使用" }).addEventListener("click", () => {
+      const name = snippetNameInput.value.trim();
+      if (!name || !(name in this.plugin.settings.customCssSnippets)) {
+        new Notice("请先保存片段。");
+        return;
+      }
+      this.plugin.settings.activeCssSnippetId = name;
+      void this.plugin.saveSettings().then(() => {
+        new Notice(`当前使用 CSS 片段 "${name}"。`);
+        this.display();
+      });
+    });
 
     new Setting(containerEl).setName("微信公众号").setHeading();
 

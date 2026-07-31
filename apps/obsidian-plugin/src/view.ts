@@ -50,12 +50,17 @@ const PLATFORM_PREVIEW_LABELS: Record<PlatformId, string> = {
 const THEME_LABELS: Record<ThemeId, string> = {
   academic: "学术",
   bold: "粗犷",
+  cherry: "樱花",
   dark: "暗夜",
   elegant: "典雅",
+  forest: "森林",
   fresh: "清新",
   minimal: "简约",
+  mono: "等宽",
   ocean: "海洋",
+  paper: "白纸",
   tech: "科技",
+  vintage: "古典",
   warm: "温暖",
   zen: "禅意"
 };
