@@ -346,9 +346,19 @@ function queryFirst(
   return undefined;
 }
 
+function isTextArea(element: Element): element is HTMLTextAreaElement {
+  return element.localName === "textarea";
+}
+
+function isTextInput(
+  element: Element
+): element is HTMLInputElement | HTMLTextAreaElement {
+  return element.localName === "input" || isTextArea(element);
+}
+
 function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: string): void {
   const prototype =
-    element instanceof HTMLTextAreaElement
+    isTextArea(element)
       ? HTMLTextAreaElement.prototype
       : HTMLInputElement.prototype;
   const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
@@ -374,6 +384,13 @@ function selectionIsInside(editor: HTMLElement): boolean {
   return Boolean(
     anchor && (anchor === editor || editor.contains(anchor))
   );
+}
+
+function dispatchEditorInput(
+  editor: HTMLElement,
+  inputType: "deleteContentBackward" | "insertFromPaste"
+): void {
+  editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType }));
 }
 
 function dataUrlToFile(dataUrl: string, name: string): File | undefined {
@@ -593,18 +610,21 @@ async function pasteImageAtToken(
   if (remainingToken) {
     selection.removeAllRanges();
     selection.addRange(remainingToken);
-    document.execCommand("delete");
+    remainingToken.deleteContents();
+    if (currentEditor) {
+      dispatchEditorInput(currentEditor, "deleteContentBackward");
+    }
   }
 }
 
 function editableText(editor: HTMLElement): string {
-  return editor instanceof HTMLTextAreaElement
+  return isTextArea(editor)
     ? editor.value
     : editor.textContent ?? "";
 }
 
 function selectMarkdownToken(editor: HTMLElement, token: string): boolean {
-  if (editor instanceof HTMLTextAreaElement) {
+  if (isTextArea(editor)) {
     const start = editor.value.indexOf(token);
     if (start < 0) {
       return false;
@@ -686,16 +706,21 @@ async function clearEditor(
   }
   editor.focus();
   selectEditorContents(editor);
-  const deleted = document.execCommand("delete");
-  const cleared =
-    deleted &&
-    (await waitFor(
-      () => {
-        const currentEditor = resolveEditor();
-        return Boolean(currentEditor && !hasEditorContent(currentEditor));
-      },
-      3_000
-    ));
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || !selectionIsInside(editor)) {
+    throw new Error(
+      "The existing editor content could not be selected safely; no replacement was inserted."
+    );
+  }
+  selection.getRangeAt(0).deleteContents();
+  dispatchEditorInput(editor, "deleteContentBackward");
+  const cleared = await waitFor(
+    () => {
+      const currentEditor = resolveEditor();
+      return Boolean(currentEditor && !hasEditorContent(currentEditor));
+    },
+    3_000
+  );
   const currentEditor = resolveEditor();
   if (!cleared || !currentEditor || hasEditorContent(currentEditor)) {
     throw new Error(
@@ -715,7 +740,7 @@ async function insertIntoEditor(
   const useMarkdown =
     definition.contentMode === "markdown" ||
     (definition.contentMode === "adaptive" &&
-      (editor instanceof HTMLTextAreaElement ||
+      (isTextArea(editor) ||
         Boolean(
           editor.closest(
             ".CodeMirror, .cm-editor, .monaco-editor, .bytemd-editor"
@@ -728,7 +753,7 @@ async function insertIntoEditor(
         "The article contains an invalid inline image that could not be prepared for upload."
       );
     }
-    if (editor instanceof HTMLTextAreaElement) {
+    if (isTextArea(editor)) {
       setNativeValue(editor, prepared.markdown);
     } else {
       let currentEditor = await clearEditor(resolveEditor);
@@ -756,22 +781,8 @@ async function insertIntoEditor(
         }, 5_000));
       currentEditor = resolveEditor() ?? currentEditor;
       if (!pasteApplied && !hasEditorContent(currentEditor)) {
-        selectEditorContents(currentEditor);
-        const inserted = document.execCommand(
-          "insertText",
-          false,
-          prepared.markdown
-        );
-        currentEditor = resolveEditor() ?? currentEditor;
-        if (!inserted || !hasEditorContent(currentEditor)) {
-          currentEditor.textContent = prepared.markdown;
-          currentEditor.dispatchEvent(
-            new InputEvent("input", {
-              bubbles: true,
-              inputType: "insertFromPaste"
-            })
-          );
-        }
+        currentEditor.textContent = prepared.markdown;
+        dispatchEditorInput(currentEditor, "insertFromPaste");
       }
     }
     if (definition.imageStrategy !== "rich-paste") {
@@ -841,18 +852,8 @@ async function insertIntoEditor(
     );
   }
 
-  selectEditorContents(currentEditor);
-  const inserted = document.execCommand("insertHTML", false, prepared.html);
-  currentEditor = resolveEditor() ?? currentEditor;
-  if (!inserted || !currentEditor.textContent?.trim()) {
-    replaceEditorHtml(currentEditor, prepared.html);
-    currentEditor.dispatchEvent(
-      new InputEvent("input", {
-        bubbles: true,
-        inputType: "insertFromPaste"
-      })
-    );
-  }
+  replaceEditorHtml(currentEditor, prepared.html);
+  dispatchEditorInput(currentEditor, "insertFromPaste");
   for (const image of prepared.images) {
     await pasteImageAtToken(resolveEditor, image);
   }
@@ -940,7 +941,7 @@ export async function applyDraftToVisibleEditor(
   const resolveEditor = (): HTMLElement | undefined =>
     queryFirst(definition.editorSelectors, title);
   const editor = resolveEditor();
-  if (!(title instanceof HTMLInputElement || title instanceof HTMLTextAreaElement) || !editor) {
+  if (!title || !isTextInput(title) || !editor) {
     return {
       errorCode: "editor-not-found",
       message:

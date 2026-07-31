@@ -19,7 +19,10 @@ export async function browserSvgToPng(
     const scale = display ? 2 : 3;
     const naturalWidth = Math.max(1, image.naturalWidth || image.width);
     const naturalHeight = Math.max(1, image.naturalHeight || image.height);
-    const canvas = document.createElement("canvas");
+    const canvas = image.ownerDocument.createElementNS(
+      "http://www.w3.org/1999/xhtml",
+      "canvas"
+    ) as HTMLCanvasElement;
     canvas.width = Math.ceil(naturalWidth * scale);
     canvas.height = Math.ceil(naturalHeight * scale);
     const context = canvas.getContext("2d");

@@ -6,6 +6,10 @@ export default defineConfig(
   globalIgnores([
     "node_modules",
     "dist",
+    "**/.output/**",
+    "**/.wxt/**",
+    "**/*.test.ts",
+    "**/obsidian-test-stub.ts",
     "apps/obsidian-plugin/main.js",
     "apps/obsidian-plugin/esbuild.config.mjs",
     "apps/obsidian-plugin/versions.json"

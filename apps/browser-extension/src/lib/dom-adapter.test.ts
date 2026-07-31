@@ -16,10 +16,6 @@ beforeEach(() => {
     item: () => null,
     length: 1
   } as unknown as DOMRectList);
-  Object.defineProperty(document, "execCommand", {
-    configurable: true,
-    value: vi.fn((command: string) => command === "selectAll")
-  });
 });
 
 afterEach(() => {
@@ -135,13 +131,11 @@ describe("visible editor adapters", () => {
       <span class="SaveStatus">保存中</span>
     `;
     const staleEditor = document.querySelector<HTMLElement>("[contenteditable]")!;
-    vi.spyOn(document, "execCommand").mockImplementation((command: string) => {
-      if (command === "delete") {
+    staleEditor.addEventListener("input", (event) => {
+      if (event instanceof InputEvent && event.inputType === "deleteContentBackward") {
         const liveEditor = staleEditor.cloneNode(false) as HTMLElement;
         staleEditor.replaceWith(liveEditor);
-        return true;
       }
-      return false;
     });
     window.setTimeout(() => {
       document.querySelector(".SaveStatus")!.textContent = "草稿已保存";

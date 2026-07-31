@@ -40,6 +40,7 @@ describe("browser formula rasterizer", () => {
       height = 20;
       naturalHeight = 20;
       naturalWidth = 40;
+      ownerDocument = document;
       onerror: OnErrorEventHandler | null = null;
       onload: (() => void) | null = null;
       width = 40;
