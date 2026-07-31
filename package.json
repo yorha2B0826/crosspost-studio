@@ -1,6 +1,6 @@
 {
   "name": "crosspost-studio",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Local-first Obsidian publishing studio for multi-platform content drafts.",
   "license": "MIT",

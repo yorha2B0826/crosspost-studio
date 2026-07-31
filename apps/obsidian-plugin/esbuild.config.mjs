@@ -12,13 +12,15 @@ const context = await esbuild.context({
   external: ["obsidian", "electron", ...builtins],
   format: "cjs",
   logLevel: "info",
-  minify: production,
+  // Obsidian requires plugin code to be human-readable for review.
+  // Minification is disabled to satisfy the community plugin guidelines.
+  minify: false,
   outfile: "main.js",
   // The desktop plugin owns a localhost HTTP/WebSocket server. Resolving the
   // `ws` package with the browser condition selects its browser-only stub,
   // where WebSocketServer is unavailable.
   platform: "node",
-  sourcemap: production ? false : "inline",
+  sourcemap: "inline",
   target: "es2022",
   treeShaking: true
 });

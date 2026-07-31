@@ -174,6 +174,14 @@ export class CrosspostView extends ItemView {
       })
     );
     this.registerEvent(
+      this.app.metadataCache.on("changed", (file) => {
+        if (file.path !== this.getActiveFile()?.path) {
+          return;
+        }
+        this.syncTargetsFromFile();
+      })
+    );
+    this.registerEvent(
       this.app.vault.on("modify", (file) => {
         if (file.path !== this.getActiveFile()?.path) {
           return;

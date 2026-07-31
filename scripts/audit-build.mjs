@@ -2,6 +2,18 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
+
+// The Obsidian plugin directory is primarily English-speaking. An
+// English description of the plugin is required in the README.
+const readme = await readFile(path.join(root, "README.md"), "utf8");
+const englishWordCount = (readme.match(/\b[a-zA-Z]{3,}\b/g) ?? []).length;
+if (englishWordCount < 100) {
+  throw new Error(
+    `README.md appears to contain insufficient English text (${englishWordCount} words of 3+ letters found). The Obsidian community directory requires an English description.`
+  );
+}
+console.log(`README English word count: ${englishWordCount}`);
+
 const rootManifest = JSON.parse(
   await readFile(path.join(root, "manifest.json"), "utf8")
 );
