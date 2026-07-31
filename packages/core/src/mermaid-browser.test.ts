@@ -2,7 +2,7 @@
 
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { browserRenderMermaidSvg } from "./mermaid";
+import { browserRenderMermaidSvg } from "./mermaid-browser";
 
 beforeAll(() => {
   Object.defineProperty(SVGElement.prototype, "getBBox", {

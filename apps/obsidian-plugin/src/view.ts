@@ -4,11 +4,13 @@ import type { Diagnostic, JobState, PlatformId } from "@crosspost/protocol";
 import {
   ItemView,
   MarkdownView,
+  Modal,
   Notice,
   sanitizeHTMLToDom,
+  setIcon,
   TFile
 } from "obsidian";
-import type { WorkspaceLeaf } from "obsidian";
+import type { App, WorkspaceLeaf } from "obsidian";
 
 import type CrosspostStudioPlugin from "./main.js";
 import type { PublishStatusUpdate } from "./main.js";
@@ -18,31 +20,49 @@ export const CROSSPOST_VIEW_TYPE = "crosspost-studio-view";
 const PLATFORMS = PLATFORM_IDS;
 
 const PLATFORM_LABELS: Record<PlatformId, string> = {
+  "51cto": "51CTO",
+  baijiahao: "百家号",
+  bilibili: "B站专栏",
   cnblogs: "博客园",
   csdn: "CSDN",
   jianshu: "简书",
   juejin: "掘金",
   oschina: "开源中国",
+  segmentfault: "思否",
+  tencentcloud: "腾讯云开发者社区",
+  toutiao: "今日头条",
   wechat: "微信公众号",
   zhihu: "知乎"
 };
 
 const PLATFORM_CHANNELS: Record<PlatformId, string> = {
+  "51cto": "浏览器扩展",
+  baijiahao: "浏览器扩展",
+  bilibili: "浏览器扩展",
   cnblogs: "浏览器扩展",
   csdn: "浏览器扩展",
   jianshu: "浏览器扩展",
   juejin: "浏览器扩展",
   oschina: "浏览器扩展",
+  segmentfault: "浏览器扩展",
+  tencentcloud: "浏览器扩展",
+  toutiao: "浏览器扩展",
   wechat: "官方 API",
   zhihu: "浏览器扩展"
 };
 
 const PLATFORM_PREVIEW_LABELS: Record<PlatformId, string> = {
+  "51cto": "51CTO",
+  baijiahao: "百家号",
+  bilibili: "B站专栏",
   cnblogs: "博客园",
   csdn: "CSDN",
   jianshu: "简书",
   juejin: "掘金",
   oschina: "开源中国",
+  segmentfault: "思否",
+  tencentcloud: "腾讯云",
+  toutiao: "今日头条",
   wechat: "公众号",
   zhihu: "知乎"
 };
@@ -75,6 +95,88 @@ const STATE_LABELS: Record<JobState, string> = {
   unknown: "结果待确认",
   "waiting-for-login": "等待登录"
 };
+
+interface CachedWeChatPreview {
+  filePath: string;
+  prepared: Awaited<ReturnType<CrosspostStudioPlugin["prepare"]>>;
+  theme: ThemeId;
+}
+
+type PreviewViewport = "desktop" | "mobile";
+
+class ExpandedPreviewModal extends Modal {
+  private frameEl?: HTMLElement;
+  private readonly viewportButtons = new Map<
+    PreviewViewport,
+    HTMLButtonElement
+  >();
+
+  constructor(
+    app: App,
+    private readonly previewTitle: string,
+    private readonly previewMeta: string,
+    private viewport: PreviewViewport,
+    private readonly previewContent: HTMLElement
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    this.modalEl.addClass("crosspost-preview-modal");
+    this.setTitle(this.previewTitle);
+    this.contentEl.empty();
+
+    const header = this.contentEl.createDiv({
+      cls: "crosspost-expanded-preview-header"
+    });
+    header.createDiv({
+      cls: "crosspost-preview-meta",
+      text: this.previewMeta
+    });
+    const viewportSwitch = header.createDiv({
+      attr: { "aria-label": "放大预览宽度" },
+      cls: "crosspost-viewport-switch"
+    });
+    for (const viewport of ["mobile", "desktop"] as const) {
+      const button = viewportSwitch.createEl("button", {
+        attr: {
+          "aria-pressed": String(this.viewport === viewport),
+          type: "button"
+        },
+        text: viewport === "mobile" ? "手机" : "桌面"
+      });
+      this.viewportButtons.set(viewport, button);
+      button.addEventListener("click", () => {
+        this.viewport = viewport;
+        this.updateViewport();
+      });
+    }
+
+    const stage = this.contentEl.createDiv({
+      cls: "crosspost-expanded-preview-stage"
+    });
+    this.frameEl = stage.createDiv({
+      cls: "crosspost-preview-frame crosspost-expanded-preview-frame"
+    });
+    this.frameEl.appendChild(this.previewContent.cloneNode(true));
+    this.updateViewport();
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+
+  private updateViewport(): void {
+    if (this.frameEl) {
+      this.frameEl.dataset.viewport = this.viewport;
+    }
+    for (const [viewport, button] of this.viewportButtons) {
+      const active = viewport === this.viewport;
+      button.toggleClass("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
+  }
+}
 
 const DIAGNOSTIC_TITLES: Record<string, string> = {
   "cover-resolution-failed": "封面读取失败",
@@ -134,16 +236,24 @@ export class CrosspostView extends ItemView {
   private diagnosticsEl?: HTMLElement;
   private diagnosticSummaryEl?: HTMLElement;
   private isPublishing = false;
+  private cachedWeChatPreview?: CachedWeChatPreview;
   private previewEl?: HTMLElement;
+  private previewFrameEl?: HTMLElement;
   private previewGeneration = 0;
   private previewMetaEl?: HTMLElement;
   private previewTitleEl?: HTMLElement;
   private publishButton?: HTMLButtonElement;
+  private copyButton?: HTMLButtonElement;
   private refreshTimer?: number;
   private readonly platformCheckboxes = new Map<PlatformId, HTMLInputElement>();
   private readonly platformLabels = new Map<PlatformId, HTMLElement>();
   private readonly platformTabs = new Map<PlatformId, HTMLButtonElement>();
   private selectedPlatforms = new Set<PlatformId>(["wechat", "zhihu", "juejin"]);
+  private previewViewport: PreviewViewport = "mobile";
+  private readonly viewportButtons = new Map<
+    PreviewViewport,
+    HTMLButtonElement
+  >();
   private sourceFile?: TFile;
   private readonly statusCards = new Map<PlatformId, HTMLElement>();
   private statusesEl?: HTMLElement;
@@ -163,7 +273,7 @@ export class CrosspostView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Crosspost Studio";
+    return "Crosspost studio";
   }
 
   getIcon(): string {
@@ -183,6 +293,7 @@ export class CrosspostView extends ItemView {
     });
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
+        this.cachedWeChatPreview = undefined;
         this.syncTargetsFromFile();
         this.renderStoredStatuses();
         void this.refreshPreview();
@@ -201,6 +312,7 @@ export class CrosspostView extends ItemView {
         if (file.path !== this.getActiveFile()?.path) {
           return;
         }
+        this.cachedWeChatPreview = undefined;
         if (this.refreshTimer !== undefined) {
           window.clearTimeout(this.refreshTimer);
         }
@@ -276,6 +388,7 @@ export class CrosspostView extends ItemView {
     }
     themeSelect.addEventListener("change", () => {
       this.theme = themeSelect.value as ThemeId;
+      this.cachedWeChatPreview = undefined;
       void this.refreshPreview();
     });
 
@@ -286,6 +399,20 @@ export class CrosspostView extends ItemView {
     });
     refreshButton.addEventListener("click", () => {
       void this.refreshPreview();
+    });
+
+    this.copyButton = actions.createEl("button", {
+      attr: {
+        title: "无需微信 API 凭据，复制后可手工粘贴到公众号编辑器",
+        type: "button"
+      },
+      cls: "crosspost-secondary-action crosspost-copy-action",
+      text: "复制公众号排版"
+    });
+    this.copyButton.addEventListener("click", () => {
+      if (this.copyButton) {
+        void this.copyWeChatLayout(this.copyButton);
+      }
     });
 
     this.publishButton = actions.createEl("button", {
@@ -305,7 +432,10 @@ export class CrosspostView extends ItemView {
     previewHeading.createDiv({ cls: "crosspost-section-label", text: "平台预览" });
     this.previewTitleEl = previewHeading.createEl("h3");
     this.previewMetaEl = previewHeading.createDiv({ cls: "crosspost-preview-meta" });
-    const previewTabs = previewHeader.createDiv({
+    const previewToolbar = previewHeader.createDiv({
+      cls: "crosspost-preview-toolbar"
+    });
+    const previewTabs = previewToolbar.createDiv({
       attr: { "aria-label": "选择预览平台", role: "tablist" },
       cls: "crosspost-preview-tabs"
     });
@@ -325,9 +455,41 @@ export class CrosspostView extends ItemView {
         void this.refreshPreview();
       });
     }
+    const viewportSwitch = previewToolbar.createDiv({
+      attr: { "aria-label": "预览宽度" },
+      cls: "crosspost-viewport-switch"
+    });
+    for (const viewport of ["mobile", "desktop"] as const) {
+      const button = viewportSwitch.createEl("button", {
+        attr: {
+          "aria-pressed": String(this.previewViewport === viewport),
+          title: viewport === "mobile" ? "375px 手机阅读宽度" : "桌面阅读宽度",
+          type: "button"
+        },
+        text: viewport === "mobile" ? "手机" : "桌面"
+      });
+      this.viewportButtons.set(viewport, button);
+      button.addEventListener("click", () => {
+        this.previewViewport = viewport;
+        this.updatePreviewViewport();
+      });
+    }
+    const expandButton = previewToolbar.createEl("button", {
+      attr: {
+        title: "在大窗口中查看当前平台排版",
+        type: "button"
+      },
+      cls: "crosspost-expand-preview"
+    });
+    setIcon(expandButton, "maximize-2");
+    expandButton.createSpan({ text: "放大查看" });
+    expandButton.addEventListener("click", () => {
+      this.openExpandedPreview();
+    });
     const previewStage = previewPanel.createDiv({ cls: "crosspost-preview-stage" });
-    const previewFrame = previewStage.createDiv({ cls: "crosspost-preview-frame" });
-    this.previewEl = previewFrame.createDiv({ cls: "crosspost-preview" });
+    this.previewFrameEl = previewStage.createDiv({ cls: "crosspost-preview-frame" });
+    this.previewEl = this.previewFrameEl.createDiv({ cls: "crosspost-preview" });
+    this.updatePreviewViewport();
 
     const side = main.createDiv({ cls: "crosspost-side" });
     const diagnosticPanel = side.createDiv({ cls: "crosspost-panel" });
@@ -423,6 +585,13 @@ export class CrosspostView extends ItemView {
         return;
       }
       this.previewEl.dataset.state = "ready";
+      if (this.activePlatform === "wechat") {
+        this.cachedWeChatPreview = {
+          filePath: file.path,
+          prepared,
+          theme: this.theme
+        };
+      }
       this.previewEl.replaceChildren(sanitizeHTMLToDom(prepared.previewHtml));
       this.previewTitleEl?.setText(
         `${PLATFORM_PREVIEW_LABELS[this.activePlatform]}预览`
@@ -496,6 +665,42 @@ export class CrosspostView extends ItemView {
           text: diagnostic.source
         });
       }
+    }
+  }
+
+  private async copyWeChatLayout(button: HTMLButtonElement): Promise<void> {
+    const file = this.getActiveFile();
+    if (!file) {
+      new Notice("请先打开一篇 Markdown 笔记。");
+      return;
+    }
+    const originalText = button.getText();
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.setText("正在准备排版…");
+    try {
+      const cached = this.cachedWeChatPreview;
+      if (
+        !cached ||
+        cached.filePath !== file.path ||
+        cached.theme !== this.theme
+      ) {
+        this.activePlatform = "wechat";
+        this.updatePlatformControls();
+        await this.refreshPreview();
+        new Notice("公众号预览已准备，请再次点击复制。");
+        return;
+      }
+      // Invoke Clipboard.write before yielding to another asynchronous task so
+      // Chromium still considers this a direct user gesture.
+      await this.plugin.copyPreparedWeChatLayout(cached.prepared);
+      new Notice("公众号排版已复制，可直接粘贴到公众号编辑器。");
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : "复制公众号排版失败。");
+    } finally {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+      button.setText(originalText);
     }
   }
 
@@ -663,6 +868,31 @@ export class CrosspostView extends ItemView {
           ? "选择发布平台"
           : `保存 ${count} 个平台草稿`
     );
+  }
+
+  private updatePreviewViewport(): void {
+    if (this.previewFrameEl) {
+      this.previewFrameEl.dataset.viewport = this.previewViewport;
+    }
+    for (const [viewport, button] of this.viewportButtons) {
+      const active = viewport === this.previewViewport;
+      button.toggleClass("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
+  }
+
+  private openExpandedPreview(): void {
+    if (!this.previewEl || this.previewEl.dataset.state !== "ready") {
+      new Notice("预览仍在生成，请稍后再放大查看。");
+      return;
+    }
+    new ExpandedPreviewModal(
+      this.app,
+      this.previewTitleEl?.getText() || "文章预览",
+      this.previewMetaEl?.getText() || "当前排版",
+      this.previewViewport,
+      this.previewEl
+    ).open();
   }
 
   private async retryPlatform(

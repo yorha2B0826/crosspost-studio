@@ -46,6 +46,12 @@ describe("CSS sanitizer", () => {
     expect(result).not.toContain("evil.com");
   });
 
+  it("blocks escaped values that could hide a URL token", () => {
+    const css = "#crosspost-root div { background: u\\72l('https://evil.com/x'); }";
+    const result = sanitizeCustomCss(css);
+    expect(result).not.toContain("evil.com");
+  });
+
   it("blocks expression() values", () => {
     const css = "#crosspost-root p { width: expression(alert(1)); }";
     const result = sanitizeCustomCss(css);

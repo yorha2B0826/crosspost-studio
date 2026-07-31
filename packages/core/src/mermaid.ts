@@ -4,6 +4,14 @@ import type { ResolvedAsset } from "./types.js";
 const MAX_MERMAID_SOURCE_CHARS = 50_000;
 let renderQueue: Promise<void> = Promise.resolve();
 
+export interface MermaidEngine {
+  initialize(config: Record<string, unknown>): void;
+  parse(source: string): Promise<unknown>;
+  render(id: string, source: string): Promise<{ svg: string } | string>;
+}
+
+export type MermaidEngineLoader = () => Promise<MermaidEngine>;
+
 function parseDimension(value: string | null): number | undefined {
   if (!value) {
     return undefined;
@@ -88,7 +96,11 @@ function sanitizeSvg(svgMarkup: string): {
   };
 }
 
-async function renderMermaidSvgInternal(source: string): Promise<ResolvedAsset> {
+async function renderMermaidSvgInternal(
+  source: string,
+  loadEngine: MermaidEngineLoader,
+  configureEngine: boolean
+): Promise<ResolvedAsset> {
   if (!source.trim()) {
     throw new Error("Mermaid code block is empty.");
   }
@@ -99,24 +111,28 @@ async function renderMermaidSvgInternal(source: string): Promise<ResolvedAsset> 
   }
 
   const digest = await sha256Hex(source);
-  const { default: mermaid } = await import("mermaid");
-  mermaid.initialize({
-    deterministicIDSeed: digest,
-    deterministicIds: true,
-    flowchart: {
-      htmlLabels: false,
-      useMaxWidth: true
-    },
-    maxTextSize: MAX_MERMAID_SOURCE_CHARS,
-    securityLevel: "strict",
-    startOnLoad: false,
-    theme: "base"
-  });
+  const mermaid = await loadEngine();
+  if (configureEngine) {
+    mermaid.initialize({
+      deterministicIDSeed: digest,
+      deterministicIds: true,
+      flowchart: {
+        htmlLabels: false,
+        useMaxWidth: true
+      },
+      maxTextSize: MAX_MERMAID_SOURCE_CHARS,
+      securityLevel: "strict",
+      startOnLoad: false,
+      theme: "base"
+    });
+  }
   await mermaid.parse(source);
   const renderId = `crosspost-mermaid-${digest.slice(0, 16)}`;
   try {
     const rendered = await mermaid.render(renderId, source);
-    const sanitized = sanitizeSvg(rendered.svg);
+    const sanitized = sanitizeSvg(
+      typeof rendered === "string" ? rendered : rendered.svg
+    );
     return {
       bytes: new TextEncoder().encode(sanitized.svg),
       height: sanitized.height,
@@ -130,8 +146,14 @@ async function renderMermaidSvgInternal(source: string): Promise<ResolvedAsset> 
   }
 }
 
-export function browserRenderMermaidSvg(source: string): Promise<ResolvedAsset> {
-  const task = renderQueue.then(() => renderMermaidSvgInternal(source));
+export function renderMermaidSvg(
+  source: string,
+  loadEngine: MermaidEngineLoader,
+  configureEngine = false
+): Promise<ResolvedAsset> {
+  const task = renderQueue.then(() =>
+    renderMermaidSvgInternal(source, loadEngine, configureEngine)
+  );
   renderQueue = task.then(
     () => undefined,
     () => undefined

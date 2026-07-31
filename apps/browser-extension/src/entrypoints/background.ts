@@ -25,6 +25,7 @@ import type {
 } from "../lib/messages";
 import {
   isExpectedDraftUrl,
+  isStableDraftUrl,
   NEW_DRAFT_URLS,
   PLATFORM_ORIGINS
 } from "../lib/platforms";
@@ -234,6 +235,12 @@ async function openDraftTab(job: PublishJob): Promise<number> {
     await browser.tabs.update(tab.id, { active: true });
   }
   await waitForTab(tab.id);
+  const loadedTab = await browser.tabs.get(tab.id);
+  if (!loadedTab.url || !isExpectedDraftUrl(job.target, loadedTab.url)) {
+    throw new Error(
+      "The platform redirected away from its draft editor. Sign in and retry the same task."
+    );
+  }
   return tab.id;
 }
 
@@ -324,11 +331,11 @@ async function processJob(job: PublishJob): Promise<void> {
       );
       return;
     }
-    if (!isExpectedDraftUrl(job.target, result.draftUrl)) {
+    if (!isStableDraftUrl(job.target, result.draftUrl)) {
       sendResult(
         job,
         "unknown",
-        "The platform reported a save, but the resulting draft URL was not recognized.",
+        "The platform reported a save, but the resulting URL did not identify a reusable draft.",
         undefined,
         "unrecognized-draft-url"
       );

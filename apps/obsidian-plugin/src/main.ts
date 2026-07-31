@@ -1,14 +1,14 @@
-import {
-  browserRenderMermaidSvg,
-  browserSvgToPng,
-  computeContentHash,
-  sha256Hex
-} from "@crosspost/core";
+import { sha256Hex } from "@crosspost/core/hash";
+import { renderMathSvg } from "@crosspost/core/math";
+import { renderMermaidSvg } from "@crosspost/core/mermaid";
+import { browserSvgToPng } from "@crosspost/core/rasterize";
+import { computeContentHash } from "@crosspost/core/renderer";
+import type { MermaidEngine } from "@crosspost/core/mermaid";
 import type {
   PublicationAsset,
   RenderedPublication,
   ThemeId
-} from "@crosspost/core";
+} from "@crosspost/core/types";
 import { generateSecretHex } from "@crosspost/protocol";
 import type {
   DraftBinding,
@@ -17,6 +17,7 @@ import type {
 } from "@crosspost/protocol";
 import {
   getFrontMatterInfo,
+  loadMermaid,
   Notice,
   parseYaml,
   Plugin,
@@ -31,6 +32,10 @@ import {
 import type {
   BridgeProgress
 } from "./bridge-server.js";
+import {
+  getWeChatCopyBlockingDiagnostics,
+  writeRichHtmlToClipboard
+} from "./clipboard.js";
 import {
   readCrosspostMetadata,
   writeDraftBinding
@@ -98,6 +103,20 @@ function toDataUrl(asset: PublicationAsset): string {
   return `data:${asset.mimeType};base64,${Buffer.from(asset.bytes).toString("base64")}`;
 }
 
+function renderObsidianMermaidSvg(source: string) {
+  return renderMermaidSvg(source, async () => {
+    const engine: unknown = await loadMermaid();
+    return engine as MermaidEngine;
+  });
+}
+
+function renderBundledMathSvg(
+  latex: string,
+  display: boolean
+): Promise<string> {
+  return Promise.resolve(renderMathSvg(latex, display));
+}
+
 function parseSourceFrontmatter(source: string): unknown {
   const info = getFrontMatterInfo(source);
   if (!info.exists) {
@@ -150,6 +169,28 @@ export default class CrosspostStudioPlugin extends Plugin {
       id: "publish-active-note",
       name: "Prepare active note for publishing"
     });
+    this.addCommand({
+      checkCallback: (checking) => {
+        const active = this.app.workspace.getActiveFile();
+        if (!active) {
+          return false;
+        }
+        if (!checking) {
+          void this.copyWeChatLayout(active, this.settings.theme)
+            .then(() => {
+              new Notice("公众号排版已复制，可直接粘贴到公众号编辑器。");
+            })
+            .catch((error: unknown) => {
+              new Notice(
+                error instanceof Error ? error.message : "复制公众号排版失败。"
+              );
+            });
+        }
+        return true;
+      },
+      id: "copy-active-note-for-wechat",
+      name: "Copy active note layout for publishing"
+    });
 
     this.app.workspace.onLayoutReady(() => {
       void this.startBridge();
@@ -195,6 +236,22 @@ export default class CrosspostStudioPlugin extends Plugin {
     theme: ThemeId
   ): Promise<PreparedPlatform> {
     return this.renderSnapshot(await this.createSnapshot(file), platform, theme);
+  }
+
+  async copyWeChatLayout(file: TFile, theme: ThemeId): Promise<PreparedPlatform> {
+    const prepared = await this.prepare(file, "wechat", theme);
+    await this.copyPreparedWeChatLayout(prepared);
+    return prepared;
+  }
+
+  async copyPreparedWeChatLayout(prepared: PreparedPlatform): Promise<void> {
+    const blocking = getWeChatCopyBlockingDiagnostics(
+      prepared.publication.artifact.diagnostics
+    );
+    if (blocking.length > 0) {
+      throw new Error(blocking.map((diagnostic) => diagnostic.message).join("\n"));
+    }
+    await writeRichHtmlToClipboard(prepared.previewHtml);
   }
 
   async publish(
@@ -420,7 +477,7 @@ export default class CrosspostStudioPlugin extends Plugin {
     ]
       .filter(Boolean)
       .join("\n");
-    const publication = await import("@crosspost/core").then(({ renderPublication }) =>
+    const publication = await import("@crosspost/core/renderer").then(({ renderPublication }) =>
       renderPublication(snapshot.source, {
         customCss: combinedCustomCss || undefined,
         metadata: {
@@ -432,7 +489,8 @@ export default class CrosspostStudioPlugin extends Plugin {
         },
         platform,
         rasterizeFormula: browserSvgToPng,
-        renderMermaid: browserRenderMermaidSvg,
+        renderFormula: renderBundledMathSvg,
+        renderMermaid: renderObsidianMermaidSvg,
         resolveAsset: (source) => snapshot.resolver.resolve(source),
         theme
       })

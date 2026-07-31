@@ -10,7 +10,13 @@ export const PLATFORM_IDS = [
   "csdn",
   "oschina",
   "cnblogs",
-  "jianshu"
+  "jianshu",
+  "segmentfault",
+  "51cto",
+  "baijiahao",
+  "toutiao",
+  "bilibili",
+  "tencentcloud"
 ] as const;
 export const BROWSER_PLATFORM_IDS = [
   "zhihu",
@@ -18,7 +24,13 @@ export const BROWSER_PLATFORM_IDS = [
   "csdn",
   "oschina",
   "cnblogs",
-  "jianshu"
+  "jianshu",
+  "segmentfault",
+  "51cto",
+  "baijiahao",
+  "toutiao",
+  "bilibili",
+  "tencentcloud"
 ] as const;
 
 export const platformSchema = z.enum(PLATFORM_IDS);
@@ -73,20 +85,20 @@ export type PublicationArtifact = z.infer<typeof publicationArtifactSchema>;
 
 export const draftBindingSchema = z.object({
   draftId: z.string().max(500).optional(),
-  draftUrl: z.string().url().max(2_000).optional(),
+  draftUrl: z.url().max(2_000).optional(),
   platform: platformSchema,
   sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
-  updatedAt: z.string().datetime()
+  updatedAt: z.iso.datetime()
 });
 export type DraftBinding = z.infer<typeof draftBindingSchema>;
 
 export const publishJobSchema = z.object({
   artifact: publicationArtifactSchema,
-  assetBaseUrl: z.string().url(),
+  assetBaseUrl: z.url(),
   assetToken: z.string().min(32).max(256),
-  createdAt: z.string().datetime(),
+  createdAt: z.iso.datetime(),
   existingBinding: draftBindingSchema.optional(),
-  id: z.string().uuid(),
+  id: z.uuid(),
   protocolVersion: z.literal(PROTOCOL_VERSION),
   target: browserPlatformSchema
 });
@@ -137,7 +149,7 @@ export const enqueueJobSchema = z.object({
 });
 
 export const jobProgressSchema = z.object({
-  jobId: z.string().uuid(),
+  jobId: z.uuid(),
   message: z.string().max(1_000),
   protocolVersion: z.literal(PROTOCOL_VERSION),
   state: jobStateSchema,
@@ -147,7 +159,7 @@ export const jobProgressSchema = z.object({
 export const jobResultSchema = z.object({
   binding: draftBindingSchema.optional(),
   errorCode: z.string().max(100).optional(),
-  jobId: z.string().uuid(),
+  jobId: z.uuid(),
   message: z.string().max(2_000),
   protocolVersion: z.literal(PROTOCOL_VERSION),
   state: z.enum(["draft-saved", "failed", "unknown", "cancelled"]),
@@ -155,7 +167,7 @@ export const jobResultSchema = z.object({
 });
 
 export const cancelJobSchema = z.object({
-  jobId: z.string().uuid(),
+  jobId: z.uuid(),
   protocolVersion: z.literal(PROTOCOL_VERSION),
   type: z.literal("cancel-job")
 });

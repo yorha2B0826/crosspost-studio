@@ -81,7 +81,16 @@ describe("frontmatter bindings", () => {
       { basename: "explicit" } as TFile,
       {
         crosspost: {
-          targets: ["csdn", "oschina", "cnblogs", "unsupported"]
+          targets: [
+            "csdn",
+            "oschina",
+            "cnblogs",
+            "segmentfault",
+            "51cto",
+            "baijiahao",
+            "toutiao",
+            "unsupported"
+          ]
         }
       }
     );
@@ -90,7 +99,15 @@ describe("frontmatter bindings", () => {
       {}
     );
 
-    expect(explicit.targets).toEqual(["csdn", "oschina", "cnblogs"]);
+    expect(explicit.targets).toEqual([
+      "csdn",
+      "oschina",
+      "cnblogs",
+      "segmentfault",
+      "51cto",
+      "baijiahao",
+      "toutiao"
+    ]);
     expect(legacyDefault.targets).toEqual(["wechat", "zhihu", "juejin"]);
   });
 });

@@ -220,6 +220,21 @@ describe("visible editor adapters", () => {
       editor: '<textarea id="post-body"></textarea>',
       platform: "cnblogs" as const,
       title: '<input id="post-title" />'
+    },
+    {
+      editor: '<textarea name="text"></textarea>',
+      platform: "segmentfault" as const,
+      title: '<input name="title" />'
+    },
+    {
+      editor: '<textarea id="content"></textarea>',
+      platform: "51cto" as const,
+      title: '<input id="title" />'
+    },
+    {
+      editor: '<div class="CodeMirror"><textarea></textarea></div>',
+      platform: "tencentcloud" as const,
+      title: '<input placeholder="请输入文章标题" />'
     }
   ])(
     "fills the visible $platform Markdown fixture and waits for save evidence",
@@ -248,6 +263,175 @@ describe("visible editor adapters", () => {
       expect(document.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
         `# ${platform} 正文`
       );
+    }
+  );
+
+  it.each([
+    {
+      editor:
+        '<div class="ProseMirror" contenteditable="true" role="textbox"></div>',
+      platform: "baijiahao" as const
+    },
+    {
+      editor:
+        '<div class="ProseMirror" contenteditable="true" role="textbox"></div>',
+      platform: "toutiao" as const
+    },
+    {
+      editor:
+        '<div class="ql-editor" contenteditable="true" role="textbox"></div>',
+      platform: "bilibili" as const
+    },
+    {
+      editor:
+        '<div class="ProseMirror" contenteditable="true" role="textbox"></div>',
+      platform: "tencentcloud" as const
+    }
+  ])(
+    "fills the visible $platform rich-text fixture and waits for save evidence",
+    async ({ editor, platform }) => {
+      document.body.innerHTML = `
+        <textarea placeholder="请输入标题"></textarea>
+        ${editor}
+        <span class="draft-status">保存中</span>
+      `;
+      window.setTimeout(() => {
+        document.querySelector(".draft-status")!.textContent =
+          platform === "toutiao" ? "已保存至草稿箱" : "草稿已保存";
+      }, 0);
+
+      const result = await applyDraftToVisibleEditor({
+        html: `<section><h2>${platform} 正文</h2><p><strong>粗体</strong></p></section>`,
+        jobId: "00000000-0000-4000-8000-000000000012",
+        markdown: `## ${platform} 正文\n\n**粗体**`,
+        platform,
+        title: `${platform} 标题`
+      });
+
+      expect(result.saved).toBe(true);
+      expect(document.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+        `${platform} 标题`
+      );
+      expect(document.querySelector<HTMLElement>("[contenteditable]")?.innerHTML)
+        .toContain("<strong>粗体</strong>");
+    }
+  );
+
+  it("uses rendered text for a rich editor's plain-text paste fallback", async () => {
+    class TestDataTransfer {
+      private readonly values = new Map<string, string>();
+
+      getData(type: string): string {
+        return this.values.get(type) ?? "";
+      }
+
+      setData(type: string, value: string): void {
+        this.values.set(type, value);
+      }
+    }
+    class TestClipboardEvent extends Event {
+      readonly clipboardData: TestDataTransfer;
+
+      constructor(
+        type: string,
+        init: EventInit & { clipboardData: TestDataTransfer }
+      ) {
+        super(type, init);
+        this.clipboardData = init.clipboardData;
+      }
+    }
+    vi.stubGlobal("DataTransfer", TestDataTransfer);
+    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+
+    document.body.innerHTML = `
+      <textarea placeholder="请输入标题"></textarea>
+      <div class="ProseMirror" contenteditable="true" role="textbox"></div>
+      <span class="draft-status">保存中</span>
+    `;
+    const editor = document.querySelector<HTMLElement>("[contenteditable]")!;
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const transfer = (event as unknown as TestClipboardEvent).clipboardData;
+      editor.textContent = transfer.getData("text/plain");
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      document.querySelector(".draft-status")!.textContent = "草稿已保存";
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<section><h2>标题</h2><p><strong>粗体</strong>正文</p></section>",
+      jobId: "00000000-0000-4000-8000-000000000013",
+      markdown: "## 标题\n\n**粗体**正文",
+      platform: "baijiahao",
+      title: "富文本回退"
+    });
+
+    expect(result.saved).toBe(true);
+    expect(editor.textContent).toBe("标题粗体正文");
+    expect(editor.textContent).not.toContain("**");
+  });
+
+  it("treats a post-injection save-state class change as fresh evidence", async () => {
+    document.body.innerHTML = `
+      <input name="title" />
+      <textarea name="text"></textarea>
+      <span class="save-status">已保存</span>
+    `;
+    window.setTimeout(() => {
+      document.querySelector(".save-status")!.classList.add("is-fresh");
+    }, 0);
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<p>正文</p>",
+      jobId: "00000000-0000-4000-8000-000000000014",
+      markdown: "正文",
+      platform: "segmentfault",
+      title: "标题"
+    });
+
+    expect(result.saved).toBe(true);
+  });
+
+  it.each([
+    {
+      editor: '<textarea name="text"></textarea>',
+      html: "<p>正文</p>",
+      markdown: "![损坏图片](data:image/png;base64,%%%%)",
+      platform: "segmentfault" as const,
+      title: '<input name="title" />'
+    },
+    {
+      editor:
+        '<div class="ProseMirror" contenteditable="true" role="textbox"></div>',
+      html: '<p><img src="data:image/png;base64,%%%%"></p>',
+      markdown: "正文",
+      platform: "baijiahao" as const,
+      title: '<textarea placeholder="请输入标题"></textarea>'
+    }
+  ])(
+    "does not silently insert an invalid inline image into $platform",
+    async ({ editor, html, markdown, platform, title }) => {
+      document.body.innerHTML = `${title}${editor}`;
+
+      const result = await applyDraftToVisibleEditor({
+        html,
+        jobId: "00000000-0000-4000-8000-000000000015",
+        markdown,
+        platform,
+        title: "损坏图片"
+      });
+
+      expect(result).toMatchObject({
+        errorCode: "invalid-inline-image",
+        saved: false,
+        unknown: true
+      });
+      expect(
+        document.querySelector<HTMLTextAreaElement>("textarea[name='text']")?.value ??
+          ""
+      ).not.toContain("data:image");
+      expect(
+        document.querySelector<HTMLElement>("[contenteditable]")?.innerHTML ?? ""
+      ).not.toContain("data:image");
     }
   );
 

@@ -11,7 +11,7 @@
   },
   "scripts": {
     "audit:build": "node scripts/audit-build.mjs",
-    "build": "pnpm -r build",
+    "build": "pnpm -r build && node scripts/package-obsidian.mjs",
     "check": "pnpm lint && pnpm lint:obsidian && pnpm typecheck && pnpm test && pnpm build && pnpm audit:build",
     "dev:extension": "pnpm --filter @crosspost/browser-extension dev",
     "dev:obsidian": "pnpm --filter @crosspost/obsidian-plugin dev",
