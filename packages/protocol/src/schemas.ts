@@ -9,14 +9,16 @@ export const PLATFORM_IDS = [
   "juejin",
   "csdn",
   "oschina",
-  "cnblogs"
+  "cnblogs",
+  "jianshu"
 ] as const;
 export const BROWSER_PLATFORM_IDS = [
   "zhihu",
   "juejin",
   "csdn",
   "oschina",
-  "cnblogs"
+  "cnblogs",
+  "jianshu"
 ] as const;
 
 export const platformSchema = z.enum(PLATFORM_IDS);

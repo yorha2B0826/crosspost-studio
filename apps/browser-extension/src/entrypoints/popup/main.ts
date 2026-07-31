@@ -1,4 +1,12 @@
 import { browser } from "wxt/browser";
+import {
+  detectLocale,
+  onSystemThemeChange,
+  resolveTheme,
+  setTheme,
+  t,
+  type Locale,
+} from "../../lib/i18n";
 import type {
   BrowserPlatform,
   ExtensionStatus,
@@ -21,15 +29,20 @@ const statusTime = document.querySelector<HTMLTimeElement>("#status-time");
 const versionOutput = document.querySelector<HTMLElement>("#version");
 
 let configured = false;
+const locale: Locale = detectLocale();
+
+function i(key: string): string {
+  return t(key, locale);
+}
 
 function formatUpdatedAt(value?: string): string {
   if (!value) {
-    return "尚未收到状态";
+    return i("connection.never");
   }
   const date = new Date(value);
   return Number.isNaN(date.getTime())
-    ? "刚刚更新"
-    : `更新于 ${date.toLocaleTimeString("zh-CN", {
+    ? i("connection.justNow")
+    : `${i("connection.updated")} ${date.toLocaleTimeString(locale === "zh-CN" ? "zh-CN" : "en", {
         hour: "2-digit",
         minute: "2-digit"
       })}`;
@@ -39,10 +52,10 @@ function renderConnection(status?: ExtensionStatus): void {
   const connected = status?.connected ?? false;
   connectionCard?.setAttribute("data-connected", String(connected));
   connectionLabel?.replaceChildren(
-    document.createTextNode(connected ? "已连接 Obsidian" : "等待 Obsidian")
+    document.createTextNode(connected ? i("connection.connected") : i("connection.waiting"))
   );
   if (statusOutput) {
-    statusOutput.textContent = status?.message ?? "尚未连接 Obsidian。";
+    statusOutput.textContent = status?.message ?? i("connection.checkingStatus");
   }
   if (statusTime) {
     statusTime.textContent = formatUpdatedAt(status?.updatedAt);
@@ -56,21 +69,21 @@ function renderConfiguration(isConfigured: boolean, port: number): void {
     portInput.value = String(port);
   }
   configuredLabel?.replaceChildren(
-    document.createTextNode(isConfigured ? "已配对" : "未配置")
+    document.createTextNode(isConfigured ? i("pairing.configured") : i("pairing.unconfigured"))
   );
   configuredLabel?.classList.toggle("is-ready", isConfigured);
   if (pairingKeyInput) {
     pairingKeyInput.placeholder = isConfigured
-      ? "留空以保留现有密钥"
-      : "从 Obsidian 设置复制";
+      ? i("pairing.keyPlaceholderConfigured")
+      : i("pairing.keyPlaceholder");
   }
   if (pairingHelp) {
     pairingHelp.textContent = isConfigured
-      ? "已保存配对密钥。只有更换密钥时才需要重新粘贴。"
-      : "密钥只保存在本机扩展中，用于验证 127.0.0.1 上的 Obsidian。";
+      ? i("pairing.helpConfigured")
+      : i("pairing.help");
   }
   if (saveButton) {
-    saveButton.textContent = isConfigured ? "更新连接设置" : "保存并连接";
+    saveButton.textContent = isConfigured ? i("pairing.update") : i("pairing.save");
   }
   if (reconnectButton) {
     reconnectButton.disabled = !isConfigured;
@@ -79,7 +92,7 @@ function renderConfiguration(isConfigured: boolean, port: number): void {
 
 function showInlineError(message: string): void {
   connectionCard?.setAttribute("data-connected", "error");
-  connectionLabel?.replaceChildren(document.createTextNode("需要处理"));
+  connectionLabel?.replaceChildren(document.createTextNode(i("connection.needsAction")));
   if (statusOutput) {
     statusOutput.textContent = message;
   }
@@ -88,7 +101,7 @@ function showInlineError(message: string): void {
 async function send(request: PopupRequest): Promise<PopupResponse> {
   const response: unknown = await browser.runtime.sendMessage(request);
   if (typeof response !== "object" || response === null) {
-    throw new Error("扩展后台没有返回有效状态。");
+    throw new Error("The extension background did not return valid state.");
   }
   const popupResponse = response as PopupResponse;
   if (popupResponse.error) {
@@ -106,7 +119,7 @@ async function refreshStatus(): Promise<void> {
       response.configuration?.port ?? 27_124
     );
   } catch (error) {
-    showInlineError(error instanceof Error ? error.message : "无法读取扩展状态。");
+    showInlineError(error instanceof Error ? error.message : "Unable to read extension state.");
   }
 }
 
@@ -122,13 +135,13 @@ async function refreshPermissions(): Promise<void> {
     button.dataset.enabled = String(granted);
     const state = button.querySelector<HTMLElement>(".permission-state");
     if (state) {
-      state.textContent = granted ? "已启用" : "启用";
+      state.textContent = granted ? i("permissions.enabled") : i("permissions.checking");
     }
     button.setAttribute(
       "aria-label",
       granted
-        ? `${button.querySelector("strong")?.textContent ?? platform}权限已启用`
-        : `启用${button.querySelector("strong")?.textContent ?? platform}权限`
+        ? `${button.querySelector("strong")?.textContent ?? platform} ${i("permissions.enabled")}`
+        : `${i("permissions.checking")} ${button.querySelector("strong")?.textContent ?? platform}`
     );
   }
   permissionSummary?.replaceChildren(
@@ -140,6 +153,26 @@ async function refreshPermissions(): Promise<void> {
   );
 }
 
+// --- Theme toggle ---
+function applyTheme(mode: "auto" | "light" | "dark"): void {
+  const resolved = resolveTheme(mode);
+  setTheme(resolved);
+}
+
+const themeSelect = document.querySelector<HTMLSelectElement>("#theme-select");
+const savedTheme = (localStorage.getItem("crosspost.theme") as "auto" | "light" | "dark") ?? "auto";
+if (themeSelect) {
+  themeSelect.value = savedTheme;
+  themeSelect.addEventListener("change", () => {
+    const mode = themeSelect.value as "auto" | "light" | "dark";
+    localStorage.setItem("crosspost.theme", mode);
+    applyTheme(mode);
+  });
+}
+applyTheme(savedTheme);
+onSystemThemeChange(() => applyTheme(savedTheme));
+
+// --- Event listeners ---
 saveButton?.addEventListener("click", () => {
   void (async () => {
     const port = Number(portInput?.value ?? 27_124);
@@ -151,11 +184,11 @@ saveButton?.addEventListener("click", () => {
       (!configured && (!pairingKey || !/^[a-f0-9]{64}$/i.test(pairingKey))) ||
       (pairingKey && !/^[a-f0-9]{64}$/i.test(pairingKey))
     ) {
-      showInlineError("请输入有效端口；首次配对还需要 64 位配对密钥。");
+      showInlineError(i("pairing.invalidInput"));
       return;
     }
     saveButton.disabled = true;
-    saveButton.textContent = "正在连接…";
+    saveButton.textContent = i("pairing.connecting");
     try {
       await send({
         config: {
@@ -169,7 +202,7 @@ saveButton?.addEventListener("click", () => {
       }
       window.setTimeout(() => void refreshStatus(), 600);
     } catch (error) {
-      showInlineError(error instanceof Error ? error.message : "连接设置保存失败。");
+      showInlineError(error instanceof Error ? error.message : "Connection settings could not be saved.");
     } finally {
       saveButton.disabled = false;
     }
@@ -183,7 +216,7 @@ reconnectButton?.addEventListener("click", () => {
       await send({ type: "crosspost:reconnect" });
       await refreshStatus();
     } catch (error) {
-      showInlineError(error instanceof Error ? error.message : "重新连接失败。");
+      showInlineError(error instanceof Error ? error.message : "Reconnect failed.");
     } finally {
       reconnectButton.disabled = !configured;
     }
@@ -205,7 +238,7 @@ for (const button of document.querySelectorAll<HTMLButtonElement>("[data-platfor
         origins: PLATFORM_ORIGINS[platform]
       });
       if (!granted) {
-        showInlineError("未授予平台权限；需要权限后才能填写对应草稿。");
+        showInlineError(i("permissions.notGranted"));
       }
       await refreshPermissions();
     })();

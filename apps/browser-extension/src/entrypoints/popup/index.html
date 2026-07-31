@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -10,39 +10,46 @@
     <main class="popup-shell">
       <header class="brand">
         <div>
-          <p class="eyebrow">LOCAL DRAFT BRIDGE</p>
-          <h1>Crosspost Studio</h1>
+          <p class="eyebrow" data-i18n="app.subtitle">LOCAL DRAFT BRIDGE</p>
+          <h1 data-i18n="app.title">Crosspost Studio</h1>
         </div>
-        <span id="version" class="version"></span>
+        <div class="brand-end">
+          <select id="theme-select" class="theme-select" aria-label="Theme">
+            <option value="auto" data-i18n="theme.auto">Auto</option>
+            <option value="light" data-i18n="theme.light">Light</option>
+            <option value="dark" data-i18n="theme.dark">Dark</option>
+          </select>
+          <span id="version" class="version"></span>
+        </div>
       </header>
 
       <section id="connection-card" class="card connection-card" data-connected="false">
         <div class="section-heading">
           <div>
-            <p class="section-label">连接状态</p>
-            <h2 id="connection-label">正在检查…</h2>
+            <p class="section-label" data-i18n="connection.heading">Connection Status</p>
+            <h2 id="connection-label" data-i18n="connection.checking">Checking…</h2>
           </div>
           <span class="status-dot" aria-hidden="true"></span>
         </div>
-        <output id="status">正在读取 Obsidian 状态…</output>
+        <output id="status" data-i18n="connection.checkingStatus">Reading Obsidian status…</output>
         <div class="status-footer">
           <time id="status-time"></time>
-          <button id="reconnect" class="text-button" type="button">重新连接</button>
+          <button id="reconnect" class="text-button" type="button" data-i18n="connection.reconnect">Reconnect</button>
         </div>
       </section>
 
       <section class="card setup-card">
         <div class="section-heading compact">
           <div>
-            <p class="section-label">本机桥接</p>
-            <h2>Obsidian 配对</h2>
+            <p class="section-label" data-i18n="pairing.subtitle">Local Bridge</p>
+            <h2 data-i18n="pairing.heading">Obsidian Pairing</h2>
           </div>
-          <span id="configured-label" class="quiet-badge">未配置</span>
+          <span id="configured-label" class="quiet-badge" data-i18n="pairing.unconfigured">Not configured</span>
         </div>
 
         <div class="form-grid">
           <label>
-            <span>本地端口</span>
+            <span data-i18n="pairing.portLabel">Local Port</span>
             <input
               id="port"
               inputmode="numeric"
@@ -53,71 +60,74 @@
             />
           </label>
           <label>
-            <span>配对密钥</span>
+            <span data-i18n="pairing.keyLabel">Pairing Key</span>
             <input
               id="pairing-key"
               autocomplete="off"
-              placeholder="从 Obsidian 设置复制"
+              placeholder="Paste from Obsidian settings"
               type="password"
             />
           </label>
         </div>
-        <p id="pairing-help" class="field-help">
-          密钥只保存在本机扩展中，用于验证 127.0.0.1 上的 Obsidian。
-        </p>
-        <button id="save" class="primary-button" type="button">保存并连接</button>
+        <p id="pairing-help" class="field-help" data-i18n="pairing.help">The key is only stored in this extension, used to authenticate Obsidian on 127.0.0.1.</p>
+        <button id="save" class="primary-button" type="button" data-i18n="pairing.save">Save &amp; Connect</button>
       </section>
 
       <section class="card platform-section">
         <div class="section-heading compact">
           <div>
-            <p class="section-label">按需授权</p>
-            <h2>平台权限</h2>
+            <p class="section-label" data-i18n="permissions.subtitle">On-Demand Auth</p>
+            <h2 data-i18n="permissions.heading">Platform Permissions</h2>
           </div>
           <span id="permission-summary" class="quiet-badge">0 / 5</span>
         </div>
         <div class="platform-list">
           <button class="platform-card" data-platform="zhihu" type="button">
             <span>
-              <strong>知乎</strong>
-              <small>打开并填写可见的草稿编辑器</small>
+              <strong data-i18n="zhihu.label">Zhihu</strong>
+              <small data-i18n="zhihu.desc">Opens and fills the visible draft editor</small>
             </span>
-            <span class="permission-state">检查中</span>
+            <span class="permission-state" data-i18n="permissions.checking">Checking…</span>
           </button>
           <button class="platform-card" data-platform="juejin" type="button">
             <span>
-              <strong>掘金</strong>
-              <small>打开并填写可见的草稿编辑器</small>
+              <strong data-i18n="juejin.label">Juejin</strong>
+              <small data-i18n="juejin.desc">Opens and fills the visible draft editor</small>
             </span>
-            <span class="permission-state">检查中</span>
+            <span class="permission-state" data-i18n="permissions.checking">Checking…</span>
           </button>
           <button class="platform-card" data-platform="csdn" type="button">
             <span>
-              <strong>CSDN</strong>
-              <small>填写 Markdown 编辑器并等待自动保存</small>
+              <strong data-i18n="csdn.label">CSDN</strong>
+              <small data-i18n="csdn.desc">Fills the Markdown editor and waits for autosave</small>
             </span>
-            <span class="permission-state">检查中</span>
+            <span class="permission-state" data-i18n="permissions.checking">Checking…</span>
           </button>
           <button class="platform-card" data-platform="oschina" type="button">
             <span>
-              <strong>开源中国</strong>
-              <small>填写可见博客编辑器并等待草稿保存</small>
+              <strong data-i18n="oschina.label">OSChina</strong>
+              <small data-i18n="oschina.desc">Fills the visible blog editor and waits for draft save</small>
             </span>
-            <span class="permission-state">检查中</span>
+            <span class="permission-state" data-i18n="permissions.checking">Checking…</span>
           </button>
           <button class="platform-card" data-platform="cnblogs" type="button">
             <span>
-              <strong>博客园</strong>
-              <small>填写 Markdown 编辑器并等待草稿保存</small>
+              <strong data-i18n="cnblogs.label">BlogsCN</strong>
+              <small data-i18n="cnblogs.desc">Fills the Markdown editor and waits for draft save</small>
             </span>
-            <span class="permission-state">检查中</span>
+            <span class="permission-state" data-i18n="permissions.checking">Checking…</span>
+          </button>
+          <button class="platform-card" data-platform="jianshu" type="button">
+            <span>
+              <strong data-i18n="jianshu.label">Jian Shu</strong>
+              <small data-i18n="jianshu.desc">Opens and fills the visible rich-text draft editor</small>
+            </span>
+            <span class="permission-state" data-i18n="permissions.checking">Checking…</span>
           </button>
         </div>
       </section>
 
-      <footer>
-        不读取 Cookie，不持久化文章正文，不执行最终发布。
-      </footer>
+      <footer data-i18n="footer">No cookies read. No article bodies persisted. No final publishing.</footer>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>

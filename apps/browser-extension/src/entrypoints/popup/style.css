@@ -52,6 +52,32 @@ button:disabled {
   margin: 2px 0 0;
 }
 
+.brand-end {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.theme-select {
+  appearance: none;
+  background: #f0f4f1;
+  border: 1px solid #ccd4ce;
+  border-radius: 6px;
+  color: #4e5951;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  min-width: 56px;
+  outline: none;
+  padding: 3px 6px;
+  text-align: center;
+}
+
+.theme-select:focus {
+  border-color: #23834d;
+  box-shadow: 0 0 0 2px rgba(35, 131, 77, 0.14);
+}
+
 .eyebrow,
 .section-label {
   color: #6c776f;
@@ -309,4 +335,74 @@ footer {
   .status-footer {
     border-color: #354039;
   }
+
+  .theme-select {
+    background: #2a322c;
+    border-color: #3a463d;
+    color: #bac4bc;
+  }
+}
+
+/* Manual theme overrides — these win over prefers-color-scheme */
+html[data-theme="dark"] body {
+  background: #171c18;
+  color: #eef4ef;
+}
+
+html[data-theme="dark"] .card {
+  background: #202722;
+  border-color: #354039;
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .version,
+html[data-theme="dark"] .quiet-badge {
+  background: #303832;
+  color: #bac4bc;
+}
+
+html[data-theme="dark"] .quiet-badge.is-ready {
+  background: #203e2b;
+  color: #83c69b;
+}
+
+html[data-theme="dark"] .eyebrow,
+html[data-theme="dark"] .section-label,
+html[data-theme="dark"] output,
+html[data-theme="dark"] #status-time,
+html[data-theme="dark"] .field-help,
+html[data-theme="dark"] footer,
+html[data-theme="dark"] .platform-card small {
+  color: #9eaaa1;
+}
+
+html[data-theme="dark"] label > span {
+  color: #c4cec6;
+}
+
+html[data-theme="dark"] input,
+html[data-theme="dark"] .platform-card {
+  background: #171c18;
+  border-color: #3a463d;
+  color: #eef4ef;
+}
+
+html[data-theme="dark"] .platform-card:hover {
+  background: #262e28;
+  border-color: #536057;
+}
+
+html[data-theme="dark"] .platform-card[data-enabled="true"] {
+  background: #1d3325;
+  border-color: #31583e;
+}
+
+html[data-theme="dark"] .status-footer {
+  border-color: #354039;
+}
+
+html[data-theme="dark"] .theme-select {
+  background: #2a322c;
+  border-color: #3a463d;
+  color: #bac4bc;
 }

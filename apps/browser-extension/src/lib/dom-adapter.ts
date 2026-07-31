@@ -22,6 +22,30 @@ const ZHIHU_IMPORT_FAILURE_IMAGE =
   "v2-4f89913ab376925632be5823a038f938";
 
 const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
+  jianshu: {
+    contentMode: "rich-html",
+    editorSelectors: [
+      ".ProseMirror[contenteditable='true']",
+      "[contenteditable='true'][role='textbox']",
+      ".public-DraftEditor-content[contenteditable='true']",
+      "div[data-div]",
+      "div#arthur-editor"
+    ],
+    imageStrategy: "rich-paste",
+    saveEvidenceSelectors: [
+      "[class*='save']",
+      "[class*='Save']",
+      "[class*='status']",
+      "[class*='Status']"
+    ],
+    saveEvidenceText: /草稿已保存|保存成功|已保存/,
+    titleSelectors: [
+      "input[placeholder*='标题']",
+      "textarea[placeholder*='标题']",
+      "input[class*='title']",
+      "input#title"
+    ]
+  },
   cnblogs: {
     contentMode: "markdown",
     editorSelectors: [

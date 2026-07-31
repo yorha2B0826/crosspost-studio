@@ -15,10 +15,11 @@ export default defineConfig({
       "https://i.cnblogs.com/*",
       "https://my.oschina.net/*",
       "https://*.zhihu.com/*",
-      "https://juejin.cn/*"
+      "https://juejin.cn/*",
+      "https://www.jianshu.com/*"
     ],
     permissions: ["scripting", "storage", "tabs"],
-    version: "0.1.0"
+    version: "1.0.0"
   },
   srcDir: "src"
 });

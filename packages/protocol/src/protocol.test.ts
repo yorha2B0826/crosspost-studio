@@ -17,7 +17,8 @@ describe("bridge protocol", () => {
       "juejin",
       "csdn",
       "oschina",
-      "cnblogs"
+      "cnblogs",
+      "jianshu"
     ]);
     expect(BROWSER_PLATFORM_IDS).not.toContain("wechat");
   });

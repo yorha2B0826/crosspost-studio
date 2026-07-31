@@ -48,6 +48,10 @@ export class CrosspostSettingTab extends PluginSettingTab {
     super(plugin.app, plugin);
   }
 
+  // Obsidian 1.11+ settings search: getSettingDefinitions() provides declarative
+  // descriptors for the settings search index. display() handles full rendering
+  // because interactive controls (SecretComponent, copy-pairing-key) cannot be
+  // expressed declaratively. Keep both in sync when adding/removing fields.
   getSettingDefinitions(): SettingDefinitionItem<SearchableSettingKey>[] {
     return [
       {
@@ -237,6 +241,35 @@ export class CrosspostSettingTab extends PluginSettingTab {
             }
           })
       );
+
+    new Setting(containerEl)
+      .setName("测试微信连接")
+      .setDesc("验证 AppID 和 AppSecret 是否能正常获取 access token。")
+      .addButton((button) => {
+        button.setButtonText("测试连接").onClick(async () => {
+          button.setButtonText("正在测试…");
+          button.setDisabled(true);
+          try {
+            const appId = this.plugin.settings.wechatAppId;
+            const appSecret = this.app.secretStorage.getSecret(
+              this.plugin.settings.wechatAppSecretId
+            );
+            if (!appSecret) {
+              new Notice("请先选择或创建微信公众号应用密钥。");
+              return;
+            }
+            const result = await this.plugin.weChat.testConnection(appId, appSecret);
+            new Notice(result.ok ? `✓ ${result.message}` : `✗ ${result.message}`);
+          } catch (error) {
+            new Notice(
+              `微信连接测试失败: ${error instanceof Error ? error.message : "未知错误"}`
+            );
+          } finally {
+            button.setButtonText("测试连接");
+            button.setDisabled(false);
+          }
+        });
+      });
 
     new Setting(containerEl).setName("浏览器扩展").setHeading();
 

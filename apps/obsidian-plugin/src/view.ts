@@ -20,6 +20,7 @@ const PLATFORMS = PLATFORM_IDS;
 const PLATFORM_LABELS: Record<PlatformId, string> = {
   cnblogs: "博客园",
   csdn: "CSDN",
+  jianshu: "简书",
   juejin: "掘金",
   oschina: "开源中国",
   wechat: "微信公众号",
@@ -29,6 +30,7 @@ const PLATFORM_LABELS: Record<PlatformId, string> = {
 const PLATFORM_CHANNELS: Record<PlatformId, string> = {
   cnblogs: "浏览器扩展",
   csdn: "浏览器扩展",
+  jianshu: "浏览器扩展",
   juejin: "浏览器扩展",
   oschina: "浏览器扩展",
   wechat: "官方 API",
@@ -38,6 +40,7 @@ const PLATFORM_CHANNELS: Record<PlatformId, string> = {
 const PLATFORM_PREVIEW_LABELS: Record<PlatformId, string> = {
   cnblogs: "博客园",
   csdn: "CSDN",
+  jianshu: "简书",
   juejin: "掘金",
   oschina: "开源中国",
   wechat: "公众号",
@@ -148,7 +151,7 @@ export class CrosspostView extends ItemView {
   }
 
   getDisplayText(): string {
-    return "Crosspost studio";
+    return "Crosspost Studio";
   }
 
   getIcon(): string {

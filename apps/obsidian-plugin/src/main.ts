@@ -114,6 +114,9 @@ export default class CrosspostStudioPlugin extends Plugin {
   private bridge?: BridgeServer;
   private readonly bridgeProgressListeners = new Set<(progress: BridgeProgress) => void>();
   private readonly weChatClient = new WeChatClient();
+  get weChat(): WeChatClient {
+    return this.weChatClient;
+  }
 
   async onload(): Promise<void> {
     await this.loadSettings();

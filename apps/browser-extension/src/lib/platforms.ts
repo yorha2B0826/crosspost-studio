@@ -3,6 +3,7 @@ import type { BrowserPlatform } from "./messages";
 export const PLATFORM_ORIGINS: Record<BrowserPlatform, string[]> = {
   cnblogs: ["https://i.cnblogs.com/*"],
   csdn: ["https://editor.csdn.net/*"],
+  jianshu: ["https://www.jianshu.com/*"],
   juejin: ["https://juejin.cn/*"],
   oschina: ["https://my.oschina.net/*"],
   zhihu: ["https://*.zhihu.com/*"]
@@ -11,6 +12,7 @@ export const PLATFORM_ORIGINS: Record<BrowserPlatform, string[]> = {
 export const NEW_DRAFT_URLS: Record<BrowserPlatform, string> = {
   cnblogs: "https://i.cnblogs.com/posts/edit",
   csdn: "https://editor.csdn.net/md/",
+  jianshu: "https://www.jianshu.com/writer",
   juejin: "https://juejin.cn/editor/drafts/new",
   oschina: "https://my.oschina.net/blog/write",
   zhihu: "https://zhuanlan.zhihu.com/write"
@@ -28,6 +30,12 @@ export function isExpectedDraftUrl(platform: BrowserPlatform, value: string): bo
           url.hostname === "i.cnblogs.com" &&
           (url.pathname.startsWith("/posts/edit") ||
             url.pathname.startsWith("/articles/edit"))
+        );
+      case "jianshu":
+        return (
+          url.hostname === "www.jianshu.com" &&
+          (url.pathname.startsWith("/writer") ||
+            /^\/p\/[a-f0-9]+\/edit\/?$/.test(url.pathname))
         );
       case "csdn":
         return url.hostname === "editor.csdn.net" && url.pathname.startsWith("/md");

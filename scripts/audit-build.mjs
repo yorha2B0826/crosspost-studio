@@ -63,7 +63,8 @@ const expectedOrigins = [
   "https://i.cnblogs.com/*",
   "https://my.oschina.net/*",
   "https://*.zhihu.com/*",
-  "https://juejin.cn/*"
+  "https://juejin.cn/*",
+  "https://www.jianshu.com/*"
 ].sort();
 const actualOrigins = [...(manifest.optional_host_permissions ?? [])].sort();
 if (JSON.stringify(actualOrigins) !== JSON.stringify(expectedOrigins)) {

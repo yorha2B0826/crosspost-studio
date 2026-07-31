@@ -73,6 +73,21 @@ export class WeChatClient {
     value: string;
   };
 
+  async testConnection(appId: string, appSecret: string): Promise<{ ok: boolean; message: string }> {
+    if (!appId.trim() || !appSecret.trim()) {
+      return { ok: false, message: "Please provide both AppID and AppSecret." };
+    }
+    try {
+      await this.getAccessToken(appId, appSecret);
+      return { ok: true, message: "Successfully obtained an access token from WeChat." };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "WeChat API connection failed."
+      };
+    }
+  }
+
   private async getAccessToken(appId: string, appSecret: string): Promise<string> {
     if (
       this.accessToken &&
