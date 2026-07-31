@@ -246,15 +246,38 @@ for (const button of document.querySelectorAll<HTMLButtonElement>("[data-platfor
 }
 
 // --- Batch grant all platforms ---
+// Chrome only processes one origin per permissions.request() call.
+// We iterate through ungranted platforms and request each one-by-one.
 const grantAllButton = document.querySelector<HTMLButtonElement>("#grant-all");
 grantAllButton?.addEventListener("click", () => {
   void (async () => {
-    const allOrigins = Object.values(PLATFORM_ORIGINS).flat();
-    const granted = await browser.permissions.request({ origins: allOrigins });
-    if (!granted) {
-      showInlineError(i("permissions.notGranted"));
+    grantAllButton.disabled = true;
+    try {
+      let remaining = 0;
+      const ungranted: Array<{ platform: string; origins: string[] }> = [];
+      for (const [platform, origins] of Object.entries(PLATFORM_ORIGINS)) {
+        if (!(await browser.permissions.contains({ origins }))) {
+          ungranted.push({ platform, origins });
+        }
+      }
+      remaining = ungranted.length;
+      if (remaining === 0) {
+        return;
+      }
+      grantAllButton.textContent = `Requesting (0 / ${remaining})…`;
+      for (const entry of ungranted) {
+        await browser.permissions.request({ origins: entry.origins });
+        remaining -= 1;
+        grantAllButton.textContent =
+          remaining > 0
+            ? `Requesting (${ungranted.length - remaining} / ${ungranted.length})…`
+            : `Requesting (${ungranted.length} / ${ungranted.length})…`;
+      }
+      await refreshPermissions();
+    } finally {
+      grantAllButton.disabled = false;
+      grantAllButton.textContent = i("permissions.grantAll");
     }
-    await refreshPermissions();
   })();
 });
 
