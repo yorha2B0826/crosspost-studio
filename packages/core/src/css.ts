@@ -43,7 +43,12 @@ const ALLOWED_PROPERTIES = new Set([
 ]);
 
 export function sanitizeCustomCss(css: string): string {
-  const root = postcss.parse(css);
+  let root;
+  try {
+    root = postcss.parse(css);
+  } catch {
+    return "";
+  }
   root.walkAtRules((rule) => {
     rule.remove();
   });

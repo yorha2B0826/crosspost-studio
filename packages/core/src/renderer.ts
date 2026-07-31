@@ -35,11 +35,24 @@ interface MutableNode {
   value?: string;
 }
 
+// A fixed UUID prefix prevents accidental collisions between formula markers
+// and user-authored text that happens to look like a marker.
+const FORMULA_MARKER_PREFIX = "a7b3c9d1";
+
 export function zhihuFormulaMarker(latex: string, display: boolean): string {
   const encoded = Array.from(new TextEncoder().encode(latex), (byte) =>
     byte.toString(16).padStart(2, "0")
   ).join("");
-  return `CROSSPOST_FORMULA_${display ? "BLOCK" : "INLINE"}_${encoded}_END`;
+  return `CROSSPOST_FORMULA_${FORMULA_MARKER_PREFIX}_${display ? "BLOCK" : "INLINE"}_${encoded}_END`;
+}
+
+function formulaMarkerRegex(output: "html" | "markdown"): RegExp {
+  // Markdown processors may escape underscores; match both forms.
+  const sep = output === "markdown" ? "\\\\_" : "_";
+  return new RegExp(
+    `CROSSPOST${sep}FORMULA${sep}${FORMULA_MARKER_PREFIX}${sep}(INLINE|BLOCK)${sep}([a-f0-9]+)${sep}END`,
+    "g"
+  );
 }
 
 function decodeHex(value: string): string {
@@ -63,10 +76,7 @@ function replaceZhihuFormulaMarkers(
   value: string,
   output: "html" | "markdown"
 ): string {
-  const marker =
-    output === "markdown"
-      ? /CROSSPOST\\_FORMULA\\_(INLINE|BLOCK)\\_([a-f0-9]+)\\_END/g
-      : /CROSSPOST_FORMULA_(INLINE|BLOCK)_([a-f0-9]+)_END/g;
+  const marker = formulaMarkerRegex(output);
   return value.replace(
     marker,
     (_marker, mode: string, encoded: string) => {

@@ -67,6 +67,7 @@ export class BridgeServer {
   private readonly clients = new Set<WebSocket>();
   private readonly jobs = new Map<string, StoredJob>();
   private readonly pending = new Map<string, PendingJob>();
+  private cleanupTimer?: number;
   private readonly server: Server;
   private readonly webSockets: WebSocketServer;
 
@@ -114,10 +115,22 @@ export class BridgeServer {
       this.server.once("error", onError);
       this.server.once("listening", onListening);
       this.server.listen(this.port, "127.0.0.1");
+      this.cleanupTimer = window.setInterval(() => {
+        const now = Date.now();
+        for (const [id, job] of this.jobs) {
+          if (job.expiresAt < now) {
+            this.jobs.delete(id);
+          }
+        }
+      }, 60_000);
     });
   }
 
   async stop(): Promise<void> {
+    if (this.cleanupTimer !== undefined) {
+      window.clearInterval(this.cleanupTimer);
+      this.cleanupTimer = undefined;
+    }
     for (const client of this.clients) {
       client.close(1_001, "Obsidian plugin stopped");
     }

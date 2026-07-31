@@ -1,10 +1,85 @@
 # Architecture
 
+[中文版本](#architecture-中文)
+
+## Snapshots & Transformation
+
+When the user clicks save, the plugin immediately reads the body, frontmatter,
+theme, custom CSS, and asset resolver to form an **immutable snapshot**. All
+conversions and platform tasks use this snapshot. After the task completes the
+current source hash is recomputed; if different, the result is marked "source
+changed" but the in-flight task is not altered.
+
+A unified Markdown AST handles GFM, Obsidian image embeds, formulas, code, and
+compatibility diagnostics. Zhihu formulas are handed to the visible editor to
+generate native LaTeX nodes; platforms without native formula support (WeChat
+and others) receive high-resolution PNGs rasterized from MathJax SVG source,
+displayed at the body `1em` logical size. Output includes platform HTML,
+platform Markdown, a content hash, and content-addressed asset descriptors;
+asset bytes live only in memory.
+
+## Platform Boundaries
+
+- The WeChat adapter uploads body images and the cover via the official API
+  inside Obsidian, then creates or updates a draft.
+- Zhihu, Juejin, Jian Shu, CSDN, OSChina, and BlogsCN jobs are handed to the
+  extension over the local bridge. The extension fetches one-shot assets, opens
+  or reuses a draft tab, injects a runtime content script, and waits for the
+  platform to display an explicit save status.
+- There is no transaction or rollback across platforms; each platform
+  independently writes its binding and task state.
+
+## Protocol
+
+All JSON messages carry `protocolVersion: 1` and are validated against shared
+Zod schemas:
+
+1. `pair` / `pair-response` / `pair-result`
+2. `capabilities`
+3. `enqueue-job`
+4. `job-progress` / `job-result`
+5. `cancel-job`
+
+The server generates a 256-bit nonce; the extension replies with
+`HMAC-SHA256(pairingKey, nonce)`. Article resources never travel over the
+WebSocket; the extension fetches them from `127.0.0.1` using a per-job bearer
+token that expires after ten minutes with caching disabled.
+
+The extension maintains an in-memory idempotency ledger for Job IDs: duplicate
+messages for an active job are suppressed, and the last 100 completed results
+can be replayed. Completion metadata does not include the article body. A
+service-worker restart loses in-progress body jobs; the user must resend.
+
+## Unknown State
+
+When initial creation times out or lacks a clear save signal, the state is
+`unknown`. The plugin persists this non-body state and blocks auto-recreation;
+the user must first check the platform for an existing draft, then explicitly
+clear the lock from the task panel. Updating a known binding that fails does not
+delete the original binding.
+
+## Formula Marker Encoding
+
+Zhihu formula markers encode LaTeX source in a hex string, wrapped in a
+discriminator with a fixed UUID prefix:
+
+```
+CROSSPOST_FORMULA_a7b3c9d1_BLOCK_<hex>_END
+```
+
+The UUID prefix (`a7b3c9d1`) prevents collisions with user-authored text.
+Markdown processors may escape underscores; both forms are matched during
+reconstruction.
+
+---
+
+# Architecture (中文)
+
 ## 快照与转换
 
 用户点击保存后，插件立即读取正文、frontmatter、主题、自定义 CSS 和资源解析器，形成不可变
 快照。转换与所有平台任务都使用这个快照。任务结束后再次计算当前源稿哈希；若不同，结果标记
-“源稿已更新”，但不会改变正在执行的任务。
+"源稿已更新"，但不会改变正在执行的任务。
 
 统一 Markdown AST 负责 GFM、Obsidian 图片嵌入、公式、代码和兼容性诊断。知乎公式交给
 可见编辑器生成原生 LaTeX 节点；微信等不支持原生公式的平台使用 SVG 源栅格化的高清
@@ -14,8 +89,8 @@ PNG，并按正文 `1em` 逻辑尺寸显示。生成物包含平台 HTML、平�
 ## 平台边界
 
 - 微信适配器在 Obsidian 中用官方 API 上传正文图片与封面，然后新增或更新草稿。
-- 知乎/掘金 Job 经本地 bridge 交给扩展。扩展获取一次性资源、打开或复用草稿页、注入运行时
-  内容脚本并等待平台显示明确保存状态。
+- 知乎、掘金、简书、CSDN、开源中国和博客园 Job 经本地 bridge 交给扩展。扩展获取一次性资源、
+  打开或复用草稿页、注入运行时内容脚本并等待平台显示明确保存状态。
 - 平台之间没有事务或回滚；每个平台独立写入 binding 和任务状态。
 
 ## 协议
@@ -39,3 +114,14 @@ WebSocket 消息；扩展持任务级 bearer token 从 `127.0.0.1` 获取，十�
 首次创建发生超时或缺少明确保存信号时，状态为 `unknown`。插件持久化这类非正文状态并阻止
 再次创建；用户必须先到平台检查是否已有草稿，再在任务面板显式解除锁定。更新已知 binding
 失败不会删除原 binding。
+
+## 公式标记编码
+
+知乎公式标记将 LaTeX 源码以 hex 编码，包裹在带固定 UUID 前缀的鉴别器中：
+
+```
+CROSSPOST_FORMULA_a7b3c9d1_BLOCK_<hex>_END
+```
+
+UUID 前缀（`a7b3c9d1`）防止与用户正文的意外碰撞。Markdown 处理器可能会转义下划线；
+重建时会同时匹配两种形式。

@@ -253,8 +253,13 @@ ${BASE_CSS}
 `
 };
 
+const themeCache = new Map<ThemeId, string>();
+
 export function getThemeCss(theme: ThemeId): string {
-  return THEMES[theme];
+  if (!themeCache.has(theme)) {
+    themeCache.set(theme, THEMES[theme]);
+  }
+  return themeCache.get(theme)!;
 }
 
 export const themeIds = Object.keys(THEMES) as ThemeId[];
