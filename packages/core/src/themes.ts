@@ -68,6 +68,64 @@ ${BASE_CSS}
 #crosspost-root blockquote { background: #f0f6ff; border-left: 4px solid #0b5fff; padding: 0.75em 1em; }
 #crosspost-root code { background: #eef3f8; border-radius: 4px; padding: 0.12em 0.3em; }
 #crosspost-root pre { background: #0d1117; color: #e6edf3; border-radius: 8px; }
+`,
+  warm: `
+${BASE_CSS}
+#crosspost-root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+#crosspost-root h1, #crosspost-root h2, #crosspost-root h3 { color: #c2410c; line-height: 1.35; }
+#crosspost-root h1 { border-bottom: 3px solid #fbbf24; padding-bottom: 0.3em; }
+#crosspost-root h2 { border-bottom: 2px solid #fed7aa; padding-bottom: 0.25em; }
+#crosspost-root h3 { color: #9a3412; }
+#crosspost-root a { color: #d97706; font-weight: 500; }
+#crosspost-root blockquote { background: #fff7ed; border-left: 4px solid #f97316; border-radius: 0 6px 6px 0; color: #7c2d12; padding: 0.75em 1em; }
+#crosspost-root code { background: #fff7ed; border-radius: 4px; color: #9a3412; padding: 0.12em 0.35em; }
+#crosspost-root pre { background: #1c1917; color: #f59e0b; border-radius: 8px; }
+#crosspost-root table { border-color: #fed7aa; }
+#crosspost-root th { background: #fff7ed; color: #9a3412; }
+`,
+  bold: `
+${BASE_CSS}
+#crosspost-root { font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-weight: 450; }
+#crosspost-root h1, #crosspost-root h2, #crosspost-root h3 { color: #111827; font-weight: 800; letter-spacing: -0.02em; }
+#crosspost-root h1 { font-size: 2.2em; line-height: 1.15; margin-bottom: 0.4em; }
+#crosspost-root h2 { border-bottom: 3px solid #111827; font-size: 1.5em; line-height: 1.25; margin-top: 1.5em; padding-bottom: 0.35em; }
+#crosspost-root h3 { font-size: 1.2em; }
+#crosspost-root a { color: #1d4ed8; font-weight: 600; }
+#crosspost-root blockquote { border-left: 6px solid #d1d5db; color: #374151; font-style: italic; margin: 1.2em 0; padding: 0.6em 1.2em; }
+#crosspost-root code { background: #111827; border-radius: 3px; color: #f9fafb; font-size: 0.9em; padding: 0.12em 0.4em; }
+#crosspost-root pre { background: #111827; color: #f9fafb; border-radius: 8px; font-size: 0.92em; }
+#crosspost-root pre code { background: transparent; color: inherit; padding: 0; }
+#crosspost-root table { border-color: #d1d5db; }
+#crosspost-root th { background: #111827; color: #f9fafb; font-weight: 700; text-transform: uppercase; }
+#crosspost-root ul > li::marker { color: #1d4ed8; }
+`,
+  elegant: `
+${BASE_CSS}
+#crosspost-root { font-family: "Libre Baskerville", Georgia, "Noto Serif CJK SC", "Songti SC", serif; color: #2d2a26; line-height: 1.85; }
+#crosspost-root h1, #crosspost-root h2, #crosspost-root h3 { color: #1a1917; font-weight: 600; }
+#crosspost-root h1 { font-size: 2em; letter-spacing: -0.01em; margin-bottom: 0.5em; text-align: center; }
+#crosspost-root h1::after { content: ""; display: block; background: linear-gradient(90deg, #c9b99a, #8c7b5e, #c9b99a); height: 2px; margin: 0.6em auto 0; width: 60%; }
+#crosspost-root h2 { border-bottom: 1px solid #d6cfc3; color: #5a4e3c; font-size: 1.45em; padding-bottom: 0.3em; }
+#crosspost-root a { color: #7c6e54; font-style: italic; }
+#crosspost-root blockquote { border-left: 3px solid #c9b99a; color: #6b5f4f; font-style: italic; padding: 0.5em 1.2em; }
+#crosspost-root code { background: #f5efe6; border: 1px solid #e5dcd0; border-radius: 3px; color: #7c6e54; font-family: "Source Code Pro", "Cascadia Code", monospace; padding: 0.12em 0.4em; }
+#crosspost-root pre { background: #faf7f2; border: 1px solid #e5dcd0; border-radius: 8px; color: #3d382e; font-family: "Source Code Pro", "Cascadia Code", monospace; }
+#crosspost-root table { border-color: #d6cfc3; }
+#crosspost-root th { background: #f5efe6; color: #5a4e3c; font-weight: 600; }
+`,
+  fresh: `
+${BASE_CSS}
+#crosspost-root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #064e3b; }
+#crosspost-root h1, #crosspost-root h2, #crosspost-root h3 { color: #065f46; line-height: 1.35; }
+#crosspost-root h1 { background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border-radius: 8px; padding: 0.4em 0.6em; }
+#crosspost-root h2 { background: linear-gradient(to right, #a7f3d0, transparent); border-left: 4px solid #059669; color: #064e3b; padding: 0.25em 0.6em; }
+#crosspost-root a { color: #059669; font-weight: 500; }
+#crosspost-root a:hover { color: #047857; text-decoration-color: #6ee7b7; }
+#crosspost-root blockquote { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 0 8px 8px 0; border-left: 4px solid #059669; color: #065f46; padding: 0.75em 1em; }
+#crosspost-root code { background: #ecfdf5; border-radius: 4px; color: #047857; padding: 0.12em 0.35em; }
+#crosspost-root pre { background: #022c22; color: #d1fae5; border-radius: 8px; }
+#crosspost-root table { border-color: #a7f3d0; }
+#crosspost-root th { background: #ecfdf5; color: #047857; }
 `
 };
 

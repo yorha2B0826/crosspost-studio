@@ -49,8 +49,12 @@ const PLATFORM_PREVIEW_LABELS: Record<PlatformId, string> = {
 
 const THEME_LABELS: Record<ThemeId, string> = {
   academic: "学术",
+  bold: "粗犷",
+  elegant: "典雅",
+  fresh: "清新",
   minimal: "简约",
-  tech: "科技"
+  tech: "科技",
+  warm: "温暖"
 };
 
 const STATE_LABELS: Record<JobState, string> = {

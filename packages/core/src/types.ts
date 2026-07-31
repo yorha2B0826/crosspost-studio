@@ -51,7 +51,7 @@ export interface RenderedPublication {
   assets: Map<string, PublicationAsset>;
 }
 
-export type ThemeId = "minimal" | "academic" | "tech";
+export type ThemeId = "minimal" | "academic" | "tech" | "warm" | "bold" | "elegant" | "fresh";
 
 export interface PreflightContext {
   artifact: PublicationArtifact;

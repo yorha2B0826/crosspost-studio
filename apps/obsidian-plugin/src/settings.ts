@@ -62,8 +62,12 @@ export class CrosspostSettingTab extends PluginSettingTab {
               key: "theme",
               options: {
                 academic: "学术",
+                bold: "粗犷",
+                elegant: "典雅",
+                fresh: "清新",
                 minimal: "简约",
-                tech: "科技"
+                tech: "科技",
+                warm: "温暖"
               },
               type: "dropdown"
             },
@@ -167,7 +171,15 @@ export class CrosspostSettingTab extends PluginSettingTab {
         this.plugin.settings.bridgePort = value;
       }
     } else if (key === "theme") {
-      if (value === "academic" || value === "minimal" || value === "tech") {
+      if (
+        value === "academic" ||
+        value === "bold" ||
+        value === "elegant" ||
+        value === "fresh" ||
+        value === "minimal" ||
+        value === "tech" ||
+        value === "warm"
+      ) {
         this.plugin.settings.theme = value;
       }
     } else if (typeof value === "string") {
@@ -193,8 +205,12 @@ export class CrosspostSettingTab extends PluginSettingTab {
         dropdown
           .addOptions({
             academic: "学术",
+            bold: "粗犷",
+            elegant: "典雅",
+            fresh: "清新",
             minimal: "简约",
-            tech: "科技"
+            tech: "科技",
+            warm: "温暖"
           })
           .setValue(this.plugin.settings.theme)
           .onChange(async (value) => {
