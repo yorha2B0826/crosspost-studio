@@ -29,29 +29,27 @@
         <button id="reconnect" class="text-button" type="button" data-i18n="connection.reconnect">Reconnect</button>
       </div>
 
-      <!-- Collapsible pairing -->
-      <details class="pairing-details" id="pairing-details">
-        <summary class="pairing-summary">
-          <span class="pairing-summary-text">
-            <span data-i18n="pairing.heading">Obsidian Pairing</span>
-          </span>
-          <span id="configured-label" class="quiet-badge" data-i18n="pairing.unconfigured">Not configured</span>
-        </summary>
-        <div class="pairing-body">
-          <div class="form-grid">
-            <label>
-              <span data-i18n="pairing.portLabel">Port</span>
-              <input id="port" inputmode="numeric" min="1024" max="65535" type="number" value="27124" />
-            </label>
-            <label>
-              <span data-i18n="pairing.keyLabel">Key</span>
-              <input id="pairing-key" autocomplete="off" type="password" data-i18n-placeholder="pairing.keyPlaceholder" placeholder="Paste from Obsidian settings" />
-            </label>
+      <!-- Pairing -->
+      <section class="pairing-section card">
+        <div class="section-heading">
+          <div>
+            <h2 class="section-title" data-i18n="pairing.heading">Obsidian Pairing</h2>
           </div>
-          <p id="pairing-help" class="field-help" data-i18n="pairing.help">Key stored locally, auth on 127.0.0.1.</p>
-          <button id="save" class="primary-button" type="button" data-i18n="pairing.save">Save &amp; Connect</button>
+          <span id="configured-label" class="quiet-badge" data-i18n="pairing.unconfigured">Not configured</span>
         </div>
-      </details>
+        <div class="form-grid">
+          <label>
+            <span data-i18n="pairing.portLabel">Port</span>
+            <input id="port" inputmode="numeric" min="1024" max="65535" type="number" value="27124" />
+          </label>
+          <label>
+            <span data-i18n="pairing.keyLabel">Key</span>
+            <input id="pairing-key" autocomplete="off" type="password" placeholder="Paste from Obsidian settings" />
+          </label>
+        </div>
+        <p id="pairing-help" class="field-help" data-i18n="pairing.help">Key stored locally, auth on 127.0.0.1.</p>
+        <button id="save" class="primary-button" type="button" data-i18n="pairing.save">Save &amp; Connect</button>
+      </section>
 
       <!-- Platform permissions -->
       <section class="platform-section">
