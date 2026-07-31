@@ -56,6 +56,7 @@ import {
 
 interface SourceSnapshot {
   customCss?: string;
+  customCssSnippet?: string;
   file: TFile;
   metadata: CrosspostMetadata;
   resolver: ObsidianAssetResolver;
@@ -394,6 +395,7 @@ export default class CrosspostStudioPlugin extends Plugin {
     }
     return {
       customCss,
+      customCssSnippet: this.settings.customCssSnippet || undefined,
       file,
       metadata,
       resolver: new ObsidianAssetResolver(this.app, file),
@@ -406,9 +408,15 @@ export default class CrosspostStudioPlugin extends Plugin {
     platform: PlatformId,
     theme: ThemeId
   ): Promise<PreparedPlatform> {
+    const combinedCustomCss = [
+      snapshot.customCssSnippet,
+      snapshot.customCss
+    ]
+      .filter(Boolean)
+      .join("\n");
     const publication = await import("@crosspost/core").then(({ renderPublication }) =>
       renderPublication(snapshot.source, {
-        customCss: snapshot.customCss,
+        customCss: combinedCustomCss || undefined,
         metadata: {
           author: snapshot.metadata.author,
           cover: snapshot.metadata.cover,

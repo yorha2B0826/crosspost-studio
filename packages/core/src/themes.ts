@@ -126,6 +126,49 @@ ${BASE_CSS}
 #crosspost-root pre { background: #022c22; color: #d1fae5; border-radius: 8px; }
 #crosspost-root table { border-color: #a7f3d0; }
 #crosspost-root th { background: #ecfdf5; color: #047857; }
+`,
+  dark: `
+${BASE_CSS}
+#crosspost-root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0d1117; color: #e6edf3; }
+#crosspost-root h1, #crosspost-root h2, #crosspost-root h3 { color: #f0f6fc; line-height: 1.35; }
+#crosspost-root h2 { border-bottom: 1px solid #30363d; padding-bottom: 0.3em; }
+#crosspost-root a { color: #58a6ff; font-weight: 500; }
+#crosspost-root blockquote { border-left: 4px solid #3fb950; color: #8b949e; padding: 0.5em 1em; }
+#crosspost-root code { background: #161b22; border: 1px solid #30363d; border-radius: 4px; color: #ffa657; padding: 0.12em 0.35em; }
+#crosspost-root pre { background: #161b22; border: 1px solid #30363d; border-radius: 8px; color: #e6edf3; }
+#crosspost-root table { border-color: #30363d; }
+#crosspost-root th { background: #161b22; color: #f0f6fc; }
+#crosspost-root th, #crosspost-root td { border-color: #30363d; }
+`,
+  zen: `
+${BASE_CSS}
+#crosspost-root { font-family: "Noto Serif CJK SC", "Songti SC", Georgia, serif; color: #1f242e; font-size: 17px; line-height: 2; max-width: 42em; }
+#crosspost-root h1, #crosspost-root h2, #crosspost-root h3 { color: #0b1940; font-weight: 400; }
+#crosspost-root h1 { font-size: 1.8em; margin-bottom: 0.7em; text-align: center; }
+#crosspost-root h1::after { content: "—"; display: block; color: #9ca3af; font-size: 0.6em; margin-top: 0.35em; }
+#crosspost-root h2 { font-size: 1.25em; margin-top: 1.8em; }
+#crosspost-root h2::before { content: "§ "; color: #9ca3af; font-size: 0.8em; }
+#crosspost-root a { color: #4b5563; font-style: italic; text-decoration-color: #d1d5db; }
+#crosspost-root blockquote { border-left: none; color: #6b7280; font-style: italic; margin: 1.2em 0; padding: 0 1.2em; position: relative; }
+#crosspost-root blockquote::before { color: #e5e7eb; content: open-quote; font-size: 3em; left: -0.15em; line-height: 0; position: absolute; top: 0.35em; }
+#crosspost-root code { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 3px; color: #6b7280; font-family: "Source Code Pro", monospace; font-size: 0.88em; padding: 0.1em 0.35em; }
+#crosspost-root pre { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; color: #374151; }
+#crosspost-root table { border-color: #e5e7eb; }
+#crosspost-root th { background: #f9fafb; color: #374151; font-weight: 500; }
+`,
+  ocean: `
+${BASE_CSS}
+#crosspost-root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #0c4a6e; }
+#crosspost-root h1, #crosspost-root h2, #crosspost-root h3 { color: #082f49; line-height: 1.35; }
+#crosspost-root h1 { background: linear-gradient(135deg, #e0f2fe, #bae6fd); border-radius: 8px; padding: 0.4em 0.6em; }
+#crosspost-root h2 { border-bottom: 3px solid #38bdf8; color: #0369a1; padding-bottom: 0.25em; }
+#crosspost-root h3 { color: #0284c7; }
+#crosspost-root a { color: #0284c7; font-weight: 500; text-decoration-color: #7dd3fc; }
+#crosspost-root blockquote { background: linear-gradient(90deg, #f0f9ff, transparent); border-left: 4px solid #38bdf8; color: #0c4a6e; padding: 0.75em 1em; }
+#crosspost-root code { background: #f0f9ff; border-radius: 4px; color: #0369a1; padding: 0.12em 0.35em; }
+#crosspost-root pre { background: #082f49; color: #bae6fd; border-radius: 8px; }
+#crosspost-root table { border-color: #bae6fd; }
+#crosspost-root th { background: #f0f9ff; color: #0369a1; }
 `
 };
 

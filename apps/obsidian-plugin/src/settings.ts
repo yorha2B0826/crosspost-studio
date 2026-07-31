@@ -8,6 +8,7 @@ import type CrosspostStudioPlugin from "./main.js";
 export interface CrosspostSettings {
   bridgePort: number;
   customCssPath: string;
+  customCssSnippet: string;
   pairingSecretId: string;
   publicationStates: Record<
     string,
@@ -30,6 +31,7 @@ export interface CrosspostSettings {
 export const DEFAULT_SETTINGS: CrosspostSettings = {
   bridgePort: 27_124,
   customCssPath: "",
+  customCssSnippet: "",
   pairingSecretId: "crosspost-studio-bridge-key",
   publicationStates: {},
   theme: "minimal",
@@ -40,6 +42,7 @@ export const DEFAULT_SETTINGS: CrosspostSettings = {
 type SearchableSettingKey =
   | "bridgePort"
   | "customCssPath"
+  | "customCssSnippet"
   | "theme"
   | "wechatAppId";
 
@@ -63,11 +66,14 @@ export class CrosspostSettingTab extends PluginSettingTab {
               options: {
                 academic: "学术",
                 bold: "粗犷",
+                dark: "暗夜",
                 elegant: "典雅",
                 fresh: "清新",
                 minimal: "简约",
+                ocean: "海洋",
                 tech: "科技",
-                warm: "温暖"
+                warm: "温暖",
+                zen: "禅意"
               },
               type: "dropdown"
             },
@@ -83,6 +89,15 @@ export class CrosspostSettingTab extends PluginSettingTab {
             },
             desc: "可选：仓库内的 CSS 文件。导出时只保留安全且限定范围的属性。",
             name: "自定义 CSS 文件"
+          },
+          {
+            control: {
+              key: "customCssSnippet",
+              placeholder: "#crosspost-root h1 { font-size: 2em; }",
+              type: "textarea"
+            },
+            desc: "直接撰写 CSS 片段，会与文件 CSS 合并。优先级高于预设主题。",
+            name: "内联 CSS 片段"
           }
         ],
         type: "group"
@@ -171,16 +186,20 @@ export class CrosspostSettingTab extends PluginSettingTab {
         this.plugin.settings.bridgePort = value;
       }
     } else if (key === "theme") {
-      if (
-        value === "academic" ||
-        value === "bold" ||
-        value === "elegant" ||
-        value === "fresh" ||
-        value === "minimal" ||
-        value === "tech" ||
-        value === "warm"
-      ) {
-        this.plugin.settings.theme = value;
+      const validThemes = new Set([
+        "academic",
+        "bold",
+        "dark",
+        "elegant",
+        "fresh",
+        "minimal",
+        "ocean",
+        "tech",
+        "warm",
+        "zen"
+      ]);
+      if (validThemes.has(value as ThemeId)) {
+        this.plugin.settings.theme = value as ThemeId;
       }
     } else if (typeof value === "string") {
       this.plugin.settings[key] = value.trim();
@@ -206,11 +225,14 @@ export class CrosspostSettingTab extends PluginSettingTab {
           .addOptions({
             academic: "学术",
             bold: "粗犷",
+            dark: "暗夜",
             elegant: "典雅",
             fresh: "清新",
             minimal: "简约",
+            ocean: "海洋",
             tech: "科技",
-            warm: "温暖"
+            warm: "温暖",
+            zen: "禅意"
           })
           .setValue(this.plugin.settings.theme)
           .onChange(async (value) => {
@@ -230,6 +252,23 @@ export class CrosspostSettingTab extends PluginSettingTab {
             this.plugin.settings.customCssPath = value.trim();
             await this.plugin.saveSettings();
           });
+      });
+
+    new Setting(containerEl)
+      .setName("内联 CSS 片段")
+      .setDesc("直接在此撰写 CSS。优先级高于文件与预设主题。仅接受 #crosspost-root 作用域内的安全属性。")
+      .addTextArea((text) => {
+        text
+          .setPlaceholder(
+            "#crosspost-root h1 { font-size: 2em; color: #4a90d9; }\n#crosspost-root blockquote { border-left-color: #e8c84a; }"
+          )
+          .setValue(this.plugin.settings.customCssSnippet)
+          .onChange(async (value) => {
+            this.plugin.settings.customCssSnippet = value;
+            await this.plugin.saveSettings();
+          });
+        text.inputEl.rows = 6;
+        text.inputEl.addClass("crosspost-css-snippet-field");
       });
 
     new Setting(containerEl).setName("微信公众号").setHeading();
@@ -260,7 +299,7 @@ export class CrosspostSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("测试微信连接")
-      .setDesc("验证 AppID 和 AppSecret 是否能正常获取 access token。")
+      .setDesc("验证 appid 和 appsecret 是否能正常获取 access token。")
       .addButton((button) => {
         button.setButtonText("测试连接").onClick(async () => {
           button.setButtonText("正在测试…");
