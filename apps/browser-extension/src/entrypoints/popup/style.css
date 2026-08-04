@@ -228,25 +228,65 @@ input:focus {
 }
 
 /* ── Platforms ── */
-.grant-all-link {
-  background: transparent;
-  border: 0;
-  color: #17663a;
-  cursor: pointer;
+.permission-help {
+  color: #68736b;
   font-size: 11px;
-  font-weight: 650;
-  margin-left: auto;
-  padding: 0;
+  line-height: 1.4;
+  margin: -2px 0 7px;
 }
 
-.grant-all-link:hover {
-  text-decoration: underline;
+.permission-primary {
+  align-items: center;
+  background: #17663a;
+  border: 1px solid #17663a;
+  border-radius: 7px;
+  color: white;
+  display: flex;
+  font-size: 12px;
+  font-weight: 680;
+  justify-content: center;
+  min-height: 34px;
+  padding: 7px 10px;
+  width: 100%;
+}
+
+.permission-primary:hover:not(:disabled) {
+  background: #12562f;
+}
+
+.permission-primary[data-state="busy"] {
+  cursor: progress;
+}
+
+.permission-feedback {
+  color: #68736b;
+  font-size: 10px;
+  line-height: 1.35;
+  margin: 5px 0 0;
+  min-height: 0;
+}
+
+.permission-feedback:empty {
+  display: none;
+}
+
+.permission-feedback[data-state="success"] {
+  color: #17663a;
+}
+
+.permission-feedback[data-state="warning"] {
+  color: #8a5a12;
+}
+
+.permission-feedback[data-state="error"] {
+  color: #a43229;
 }
 
 .platform-grid {
   display: grid;
   gap: 5px;
   grid-template-columns: 1fr 1fr 1fr;
+  margin-top: 8px;
 }
 
 .platform-chip {
@@ -327,6 +367,23 @@ input:focus {
     color: #8e9a90;
   }
 
+  .permission-help,
+  .permission-feedback {
+    color: #9ba69d;
+  }
+
+  .permission-feedback[data-state="success"] {
+    color: #7dc68a;
+  }
+
+  .permission-feedback[data-state="warning"] {
+    color: #e1b565;
+  }
+
+  .permission-feedback[data-state="error"] {
+    color: #ef8f87;
+  }
+
   label > span {
     color: #bac4bc;
   }
@@ -384,6 +441,23 @@ html[data-theme="dark"] .theme-select {
 
 html[data-theme="dark"] .field-help {
   color: #8e9a90;
+}
+
+html[data-theme="dark"] .permission-help,
+html[data-theme="dark"] .permission-feedback {
+  color: #9ba69d;
+}
+
+html[data-theme="dark"] .permission-feedback[data-state="success"] {
+  color: #7dc68a;
+}
+
+html[data-theme="dark"] .permission-feedback[data-state="warning"] {
+  color: #e1b565;
+}
+
+html[data-theme="dark"] .permission-feedback[data-state="error"] {
+  color: #ef8f87;
 }
 
 html[data-theme="dark"] label > span {

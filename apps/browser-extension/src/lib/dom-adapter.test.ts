@@ -40,7 +40,7 @@ describe("visible editor adapters", () => {
     );
   });
 
-  it("extracts Markdown data images without changing their surrounding syntax", () => {
+  it("extracts complete Markdown data images as paste-safe insertion tokens", () => {
     const result = extractEmbeddedMarkdownImages(
       "before\n\n![示例](data:image/png;base64,iVBORw0KGgo=)\n\n" +
         "![流程图](data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=)\n\nafter",
@@ -54,11 +54,12 @@ describe("visible editor adapters", () => {
       type: "image/svg+xml"
     });
     expect(result.markdown).toContain(
-      "![示例](CROSSPOST_IMAGE_00000000000040008000000000000098_0)"
+      "CROSSPOST_IMAGE_00000000000040008000000000000098_0"
     );
     expect(result.markdown).toContain(
-      "![流程图](CROSSPOST_IMAGE_00000000000040008000000000000098_1)"
+      "CROSSPOST_IMAGE_00000000000040008000000000000098_1"
     );
+    expect(result.markdown).not.toContain("![示例](CROSSPOST_IMAGE_");
     expect(result.markdown).not.toContain("data:image/png");
     expect(result.markdown).not.toContain("data:image/svg+xml");
   });
@@ -172,6 +173,117 @@ describe("visible editor adapters", () => {
       errorCode: "editor-not-found",
       saved: false
     });
+    expect(result.message).toContain("title=missing, body=missing");
+    expect(result.message).toContain("visible controls: none");
+  });
+
+  it.each(["【无标题】", "CSDN 标题"])(
+    "opens CSDN's collapsed %s title and fills its current Markdown editor",
+    async (collapsedTitle) => {
+      document.body.innerHTML = `
+        <button id="collapsed-title">${collapsedTitle}</button>
+        <pre class="editor__inner markdown-highlighting" contenteditable="true"></pre>
+        <span class="save-status">保存中</span>
+      `;
+      document
+        .querySelector("#collapsed-title")
+        ?.addEventListener("click", (event) => {
+          const input = document.createElement("input");
+          input.value = "【无标题】";
+          input.placeholder = "请输入文章标题（5~100个字）";
+          (event.currentTarget as HTMLElement).replaceWith(input);
+        });
+      window.setTimeout(() => {
+        document.querySelector(".save-status")!.textContent = "草稿已保存";
+      }, 0);
+
+      const result = await applyDraftToVisibleEditor({
+        html: "<p>CSDN 正文</p>",
+        jobId: "00000000-0000-4000-8000-000000000000",
+        markdown: "# CSDN 正文",
+        platform: "csdn",
+        title: "CSDN 标题"
+      });
+
+      expect(result.saved).toBe(true);
+      expect(document.querySelector<HTMLInputElement>("input")?.value).toBe(
+        "CSDN 标题"
+      );
+      expect(document.querySelector("pre")?.textContent).toContain(
+        "CSDN 正文"
+      );
+    }
+  );
+
+  it("opens Jianshu's notebook landing page before filling a new article", async () => {
+    document.body.innerHTML = `
+      <button id="new-article">新建文章</button>
+      <input class="collection-name" placeholder="请输入文集名..." />
+    `;
+    document.querySelector("#new-article")?.addEventListener("click", () => {
+      document.body.insertAdjacentHTML(
+        "beforeend",
+        `
+          <input placeholder="请输入标题" />
+          <div id="arthur-editor" contenteditable="true"></div>
+          <span class="save-status">保存中</span>
+        `
+      );
+      window.setTimeout(() => {
+        document.querySelector(".save-status")!.textContent = "已保存";
+      }, 0);
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<p>简书正文</p>",
+      jobId: "00000000-0000-4000-8000-000000000011",
+      markdown: "简书正文",
+      platform: "jianshu",
+      title: "简书标题"
+    });
+
+    expect(result.saved).toBe(true);
+    expect(
+      document.querySelector<HTMLInputElement>("input[placeholder='请输入标题']")
+        ?.value
+    ).toBe("简书标题");
+    expect(document.querySelector("#arthur-editor")?.innerHTML).toContain(
+      "简书正文"
+    );
+  });
+
+  it("fills Jianshu's current Kalamu editor without relying on hashed classes", async () => {
+    document.body.innerHTML = `
+      <div class="writer-pane">
+        <p class="_3-3KB">保存中</p>
+        <div class="article-fields">
+          <input class="_24i7u" value="2026-08-04" />
+          <div class="editor-shell">
+            <div id="editor">
+              <div class="kalamu-area" contenteditable="true"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    window.setTimeout(() => {
+      document.querySelector(".writer-pane > p")!.textContent = "已保存";
+    }, 0);
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<h1>简书正文</h1><p>富文本内容</p>",
+      jobId: "00000000-0000-4000-8000-000000000012",
+      markdown: "# 简书正文\n\n富文本内容",
+      platform: "jianshu",
+      title: "简书标题"
+    });
+
+    expect(result.saved).toBe(true);
+    expect(document.querySelector<HTMLInputElement>(".article-fields > input")?.value)
+      .toBe("简书标题");
+    expect(document.querySelector(".kalamu-area")?.innerHTML).toContain(
+      "简书正文"
+    );
   });
 
   it("fills a Juejin Markdown fixture and waits for its save signal", async () => {
@@ -199,16 +311,39 @@ describe("visible editor adapters", () => {
     ).toBe("# 掘金正文");
   });
 
+  it("fills the current OSChina rich-text editor and waits for autosave", async () => {
+    document.body.innerHTML = `
+      <input class="title-input" placeholder="请输入文章标题" />
+      <div class="tiptap ProseMirror aie-content" contenteditable="true" role="textbox"></div>
+      <span class="publish-right-title">文章将自动保存至草稿箱</span>
+    `;
+    window.setTimeout(() => {
+      document.querySelector(".publish-right-title")!.textContent =
+        "文章已自动保存至草稿箱";
+    }, 0);
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<h1>开源中国正文</h1><p>富文本内容</p>",
+      jobId: "00000000-0000-4000-8000-000000000011",
+      markdown: "# 开源中国正文\n\n富文本内容",
+      platform: "oschina",
+      title: "开源中国标题"
+    });
+
+    expect(result.saved).toBe(true);
+    expect(document.querySelector<HTMLInputElement>("input")?.value).toBe(
+      "开源中国标题"
+    );
+    expect(document.querySelector(".aie-content")?.innerHTML).toContain(
+      "开源中国正文"
+    );
+  });
+
   it.each([
     {
       editor: '<div class="monaco-editor"><textarea class="inputarea"></textarea></div>',
       platform: "csdn" as const,
       title: '<input id="txtTitle" />'
-    },
-    {
-      editor: '<textarea id="markdownContent"></textarea>',
-      platform: "oschina" as const,
-      title: '<input name="title" />'
     },
     {
       editor: '<textarea id="post-body"></textarea>',
@@ -288,11 +423,17 @@ describe("visible editor adapters", () => {
         <textarea placeholder="请输入标题"></textarea>
         ${editor}
         <span class="draft-status">保存中</span>
+        ${platform === "bilibili" ? '<button>保存为草稿</button>' : ""}
       `;
-      window.setTimeout(() => {
+      const confirmSaved = (): void => {
         document.querySelector(".draft-status")!.textContent =
           platform === "toutiao" ? "已保存至草稿箱" : "草稿已保存";
-      }, 0);
+      };
+      if (platform === "bilibili") {
+        document.querySelector("button")!.addEventListener("click", confirmSaved);
+      } else {
+        window.setTimeout(confirmSaved, 0);
+      }
 
       const result = await applyDraftToVisibleEditor({
         html: `<section><h2>${platform} 正文</h2><p><strong>粗体</strong></p></section>`,
@@ -475,7 +616,7 @@ describe("visible editor adapters", () => {
       const start = editor.selectionStart;
       const end = editor.selectionEnd;
       editor.setRangeText(
-        "https://img.example.test/crosspost.png",
+        "![已上传](https://img.example.test/crosspost.png)",
         start,
         end,
         "end"
@@ -498,6 +639,132 @@ describe("visible editor adapters", () => {
     );
     expect(editor.value).not.toContain("CROSSPOST_IMAGE_");
     expect(editor.value).not.toContain("data:image/png");
+  });
+
+  it("uploads CodeMirror images before rewriting the final SegmentFault Markdown", async () => {
+    class TestDataTransfer {
+      readonly files: File[] = [];
+      readonly items = {
+        add: (file: File): File => {
+          this.files.push(file);
+          return file;
+        }
+      };
+    }
+    class TestClipboardEvent extends Event {
+      readonly clipboardData: TestDataTransfer;
+
+      constructor(
+        type: string,
+        init: EventInit & { clipboardData: TestDataTransfer }
+      ) {
+        super(type, init);
+        this.clipboardData = init.clipboardData;
+      }
+    }
+    vi.stubGlobal("DataTransfer", TestDataTransfer);
+    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+
+    document.body.innerHTML = `
+      <input id="title" name="title" />
+      <div class="CodeMirror">
+        <textarea></textarea>
+        <pre class="CodeMirror-code"></pre>
+      </div>
+      <span class="save-status">保存中</span>
+    `;
+    const editor = document.querySelector<HTMLTextAreaElement>("textarea")!;
+    const rendered = document.querySelector<HTMLElement>(".CodeMirror-code")!;
+    editor.addEventListener("input", () => {
+      if (editor.value) {
+        rendered.textContent = editor.value;
+        editor.value = "";
+      }
+      if (!rendered.textContent?.includes("CROSSPOST_IMAGE_")) {
+        document.querySelector(".save-status")!.textContent = "已保存";
+      }
+    });
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const transfer = (event as unknown as TestClipboardEvent).clipboardData;
+      expect(transfer.files[0]?.type).toBe("image/png");
+      rendered.textContent +=
+        "\n![已上传](https://img.segmentfault.test/crosspost.png)";
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html: '<p><img src="data:image/png;base64,iVBORw0KGgo="></p>',
+      jobId: "00000000-0000-4000-8000-000000000016",
+      markdown: "![本地图片](data:image/png;base64,iVBORw0KGgo=)",
+      platform: "segmentfault",
+      title: "思否图片草稿"
+    });
+
+    expect(result.saved).toBe(true);
+    expect(rendered.textContent).toContain(
+      "![本地图片](https://img.segmentfault.test/crosspost.png)"
+    );
+    expect(rendered.textContent).not.toContain("CROSSPOST_IMAGE_");
+    expect(rendered.textContent).not.toContain("data:image/png");
+  });
+
+  it("rewrites 51CTO Markdown after uploads that ignore the selected token", async () => {
+    class TestDataTransfer {
+      readonly files: File[] = [];
+      readonly items = {
+        add: (file: File): File => {
+          this.files.push(file);
+          return file;
+        }
+      };
+    }
+    class TestClipboardEvent extends Event {
+      readonly clipboardData: TestDataTransfer;
+
+      constructor(
+        type: string,
+        init: EventInit & { clipboardData: TestDataTransfer }
+      ) {
+        super(type, init);
+        this.clipboardData = init.clipboardData;
+      }
+    }
+    vi.stubGlobal("DataTransfer", TestDataTransfer);
+    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+
+    document.body.innerHTML = `
+      <input placeholder="请输入标题，您可以输入100个字" />
+      <textarea placeholder="请输入正文"></textarea>
+      <span class="save-draft">保存中</span>
+    `;
+    const editor = document.querySelector<HTMLTextAreaElement>("textarea")!;
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const transfer = (event as unknown as TestClipboardEvent).clipboardData;
+      expect(transfer.files[0]?.type).toBe("image/png");
+      editor.value +=
+        "![已上传](https://img.51cto.test/crosspost.png)";
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    });
+    editor.addEventListener("input", () => {
+      if (!editor.value.includes("CROSSPOST_IMAGE_")) {
+        document.querySelector(".save-draft")!.textContent = "已保存";
+      }
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html: '<p><img src="data:image/png;base64,iVBORw0KGgo="></p>',
+      jobId: "00000000-0000-4000-8000-000000000017",
+      markdown: "图片：![本地图片](data:image/png;base64,iVBORw0KGgo=)",
+      platform: "51cto",
+      title: "51CTO 图片草稿"
+    });
+
+    expect(result.saved).toBe(true);
+    expect(editor.value).toBe(
+      "图片：![本地图片](https://img.51cto.test/crosspost.png)"
+    );
+    expect(editor.value).not.toContain("CROSSPOST_IMAGE_");
   });
 
   it("rejects unresolved one-time asset markers", async () => {

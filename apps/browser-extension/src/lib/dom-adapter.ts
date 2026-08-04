@@ -8,12 +8,14 @@ interface PlatformDomDefinition {
   contentMode: "adaptive" | "markdown" | "rich-html";
   editorSelectors: string[];
   imageStrategy: "adaptive" | "markdown-paste" | "rich-paste";
+  saveActionText?: string;
   saveEvidenceSelectors: string[];
   saveEvidenceText: RegExp;
   titleSelectors: string[];
 }
 
 interface EmbeddedImage {
+  alt?: string;
   file: File;
   token: string;
 }
@@ -27,6 +29,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
   "51cto": {
     contentMode: "markdown",
     editorSelectors: [
+      "textarea[placeholder='请输入正文']",
       "textarea#content",
       "textarea[name='content']",
       ".bytemd-editor .CodeMirror textarea",
@@ -37,6 +40,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
     ],
     imageStrategy: "markdown-paste",
     saveEvidenceSelectors: [
+      ".save-draft",
       "[class*='save-status']",
       "[class*='draft-status']",
       "[class*='autosave']",
@@ -79,6 +83,9 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
   bilibili: {
     contentMode: "rich-html",
     editorSelectors: [
+      "textarea[placeholder='请输入正文']",
+      "[contenteditable='true'][data-placeholder='请输入正文']",
+      "[contenteditable='true'][aria-label='请输入正文']",
       ".ql-editor[contenteditable='true']",
       ".ProseMirror[contenteditable='true']",
       ".w-e-text[contenteditable='true']",
@@ -86,6 +93,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "[class*='editor'] [contenteditable='true']"
     ],
     imageStrategy: "rich-paste",
+    saveActionText: "保存为草稿",
     saveEvidenceSelectors: [
       "[class*='save-status']",
       "[class*='draft-status']",
@@ -105,6 +113,8 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
   jianshu: {
     contentMode: "rich-html",
     editorSelectors: [
+      "#editor .kalamu-area[contenteditable='true']",
+      ".kalamu-area[contenteditable='true']",
       ".ProseMirror[contenteditable='true']",
       "[contenteditable='true'][role='textbox']",
       ".public-DraftEditor-content[contenteditable='true']",
@@ -113,6 +123,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
     ],
     imageStrategy: "rich-paste",
     saveEvidenceSelectors: [
+      "div:has(#editor) > p",
       "[class*='save']",
       "[class*='Save']",
       "[class*='status']",
@@ -120,6 +131,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
     ],
     saveEvidenceText: /草稿已保存|保存成功|已保存/,
     titleSelectors: [
+      "div:has(> div > #editor) > input",
       "input[placeholder*='标题']",
       "textarea[placeholder*='标题']",
       "input[class*='title']",
@@ -156,6 +168,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
   csdn: {
     contentMode: "markdown",
     editorSelectors: [
+      "pre.editor__inner.markdown-highlighting[contenteditable='true']",
       ".monaco-editor textarea.inputarea",
       ".CodeMirror textarea",
       ".cm-editor .cm-content[contenteditable='true']",
@@ -173,9 +186,11 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
     saveEvidenceText: /草稿已保存|文章已保存|保存成功|自动保存成功|已保存/,
     titleSelectors: [
       "input#txtTitle",
+      "input[value='【无标题】']",
       "input[placeholder*='标题']",
       "textarea[placeholder*='标题']",
-      "input[class*='title']"
+      "input[class*='title']",
+      "[contenteditable='true'][class*='title']"
     ]
   },
   juejin: {
@@ -200,8 +215,11 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
     ]
   },
   oschina: {
-    contentMode: "markdown",
+    contentMode: "rich-html",
     editorSelectors: [
+      ".tiptap.ProseMirror.aie-content[contenteditable='true']",
+      ".ProseMirror[contenteditable='true'][role='textbox']",
+      "[contenteditable='true'][role='textbox']",
       "textarea#markdownContent",
       "textarea[name='content']",
       ".CodeMirror textarea",
@@ -209,14 +227,16 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "textarea[aria-label*='Editor content']",
       "textarea"
     ],
-    imageStrategy: "markdown-paste",
+    imageStrategy: "rich-paste",
     saveEvidenceSelectors: [
+      ".publish-right-title",
       "[class*='save-status']",
       "[class*='autosave']",
       "[class*='draft-status']",
       "[class*='status']"
     ],
-    saveEvidenceText: /草稿已保存|保存成功|自动保存成功|已保存/,
+    saveEvidenceText:
+      /文章.*保存至草稿箱|草稿已保存|保存成功|自动保存成功|已保存/,
     titleSelectors: [
       "input[name='title']",
       "input[placeholder*='标题']",
@@ -346,6 +366,85 @@ function queryFirst(
   return undefined;
 }
 
+function queryExactVisibleText(value: string): HTMLElement | undefined {
+  return Array.from(document.querySelectorAll<HTMLElement>("body *")).find(
+    (element) =>
+      element.childElementCount === 0 &&
+      element.textContent?.trim() === value &&
+      element.getClientRects().length > 0
+  );
+}
+
+async function activateDraftEditor(
+  platform: BrowserPlatform,
+  definition: PlatformDomDefinition
+): Promise<void> {
+  if (
+    platform !== "jianshu" ||
+    (queryFirst(definition.titleSelectors) &&
+      queryFirst(definition.editorSelectors))
+  ) {
+    return;
+  }
+
+  const activator = queryExactVisibleText("新建文章");
+  if (!activator) {
+    return;
+  }
+  activator.click();
+  await waitFor(
+    () =>
+      Boolean(
+        queryFirst(definition.titleSelectors) &&
+          queryFirst(definition.editorSelectors)
+      ),
+    8_000
+  );
+}
+
+async function resolveTitle(
+  platform: BrowserPlatform,
+  definition: PlatformDomDefinition,
+  expectedTitle: string
+): Promise<HTMLElement | undefined> {
+  const existing = queryFirst(definition.titleSelectors);
+  if (existing || platform !== "csdn") {
+    return existing;
+  }
+  const activator =
+    queryExactVisibleText("【无标题】") ?? queryExactVisibleText(expectedTitle);
+  if (!activator) {
+    return undefined;
+  }
+  activator.click();
+  await waitFor(() => Boolean(queryFirst(definition.titleSelectors)), 1_000);
+  return queryFirst(definition.titleSelectors);
+}
+
+function summarizeVisibleEditors(): string {
+  const controls = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      "input, textarea, [contenteditable='true']"
+    )
+  )
+    .filter((element) => element.getClientRects().length > 0)
+    .slice(0, 6)
+    .map((element) => {
+      const id = element.id ? `#${element.id}` : "";
+      const classes = Array.from(element.classList)
+        .slice(0, 3)
+        .map((className) => `.${className}`)
+        .join("");
+      const placeholder = element.getAttribute("placeholder");
+      const label = element.getAttribute("aria-label");
+      const hint = placeholder ?? label;
+      return `${element.localName}${id}${classes}${
+        hint ? `[hint=${JSON.stringify(hint.slice(0, 80))}]` : ""
+      }`;
+    });
+  return controls.length > 0 ? controls.join(", ") : "none";
+}
+
 function isTextArea(element: Element): element is HTMLTextAreaElement {
   return element.localName === "textarea";
 }
@@ -356,6 +455,14 @@ function isTextInput(
   return element.localName === "input" || isTextArea(element);
 }
 
+function isEditableTitle(element: HTMLElement): boolean {
+  return (
+    isTextInput(element) ||
+    element.isContentEditable ||
+    element.getAttribute("contenteditable") === "true"
+  );
+}
+
 function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: string): void {
   const prototype =
     isTextArea(element)
@@ -364,6 +471,19 @@ function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: 
   const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
   descriptor?.set?.call(element, value);
   element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+  element.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function setTitleValue(element: HTMLElement, value: string): void {
+  if (isTextInput(element)) {
+    setNativeValue(element, value);
+    return;
+  }
+  element.focus();
+  element.textContent = value;
+  element.dispatchEvent(
+    new InputEvent("input", { bubbles: true, inputType: "insertText" })
+  );
   element.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
@@ -453,19 +573,31 @@ export function extractEmbeddedMarkdownImages(
 ): { images: EmbeddedImage[]; markdown: string } {
   const images: EmbeddedImage[] = [];
   const normalizedJobId = jobId.replaceAll("-", "");
-  const preparedMarkdown = markdown.replace(
+  const registerImage = (
+    dataUrl: string,
+    mimeType: string,
+    alt?: string
+  ): string => {
+    const token = `CROSSPOST_IMAGE_${normalizedJobId}_${images.length}`;
+    const file = dataUrlToFile(
+      dataUrl,
+      `crosspost-${images.length}.${extensionForMimeType(mimeType.toLowerCase())}`
+    );
+    if (!file) {
+      return dataUrl;
+    }
+    images.push({ alt, file, token });
+    return token;
+  };
+  const withoutMarkdownImages = markdown.replace(
+    /!\[([^\]]*)\]\((data:(image\/[^;,\s)]+);base64,[a-z0-9+/=]+)\)/gi,
+    (_match, alt: string, dataUrl: string, mimeType: string) =>
+      registerImage(dataUrl, mimeType, alt)
+  );
+  const preparedMarkdown = withoutMarkdownImages.replace(
     /data:(image\/[^;,\s)]+);base64,([a-z0-9+/=]+)/gi,
     (dataUrl, mimeType: string, _base64: string) => {
-      const token = `CROSSPOST_IMAGE_${normalizedJobId}_${images.length}`;
-      const file = dataUrlToFile(
-        dataUrl,
-        `crosspost-${images.length}.${extensionForMimeType(mimeType.toLowerCase())}`
-      );
-      if (!file) {
-        return dataUrl;
-      }
-      images.push({ file, token });
-      return token;
+      return registerImage(dataUrl, mimeType);
     }
   );
   return { images, markdown: preparedMarkdown };
@@ -623,6 +755,92 @@ function editableText(editor: HTMLElement): string {
     : editor.textContent ?? "";
 }
 
+function markdownEditorSurface(editor: HTMLTextAreaElement): HTMLElement {
+  return editor.closest<HTMLElement>(".CodeMirror") ?? editor;
+}
+
+function markdownEditorText(editor: HTMLTextAreaElement): string {
+  const surface = markdownEditorSurface(editor);
+  return surface === editor ? editor.value : surface.textContent ?? "";
+}
+
+function extractHttpUrls(value: string): Set<string> {
+  return new Set(value.match(/https?:\/\/[^\s)]+/g) ?? []);
+}
+
+async function uploadTextareaMarkdownImages(
+  resolveEditor: () => HTMLElement | undefined,
+  images: EmbeddedImage[],
+  markdown: string
+): Promise<void> {
+  const replacements = new Map<string, string>();
+  for (const image of images) {
+    const editor = resolveEditor();
+    if (!editor || !isTextArea(editor)) {
+      throw new Error("The Markdown editor was replaced during an image upload.");
+    }
+    const previousUrls = extractHttpUrls(markdownEditorText(editor));
+    editor.focus();
+    editor.setSelectionRange(editor.value.length, editor.value.length);
+    const transfer = new DataTransfer();
+    transfer.items.add(image.file);
+    const handled = !editor.dispatchEvent(
+      new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: transfer
+      })
+    );
+    if (!handled) {
+      throw new Error("The Markdown editor did not accept an image file paste.");
+    }
+
+    let uploadedUrl: string | undefined;
+    const uploaded = await waitFor(() => {
+      const current = resolveEditor();
+      if (!current || !isTextArea(current)) {
+        return false;
+      }
+      uploadedUrl = Array.from(
+        extractHttpUrls(markdownEditorText(current))
+      ).find((url) => !previousUrls.has(url));
+      return uploadedUrl !== undefined;
+    }, 30_000);
+    if (!uploaded || !uploadedUrl) {
+      throw new Error("The platform did not confirm a CodeMirror image upload.");
+    }
+    replacements.set(image.token, uploadedUrl);
+  }
+
+  const editor = resolveEditor();
+  if (!editor || !isTextArea(editor)) {
+    throw new Error("The Markdown editor disappeared before finalizing images.");
+  }
+  let finalizedMarkdown = markdown;
+  for (const [token, url] of replacements) {
+    const alt = images.find((image) => image.token === token)?.alt;
+    finalizedMarkdown = finalizedMarkdown.replaceAll(
+      token,
+      `![${alt || "crosspost image"}](${url})`
+    );
+  }
+  setNativeValue(editor, finalizedMarkdown);
+  const finalized = await waitFor(() => {
+    const current = resolveEditor();
+    if (!current || !isTextArea(current)) {
+      return false;
+    }
+    const text = markdownEditorText(current);
+    return (
+      !text.includes("CROSSPOST_IMAGE_") &&
+      Array.from(replacements.values()).every((url) => text.includes(url))
+    );
+  }, 5_000);
+  if (!finalized) {
+    throw new Error("The Markdown editor did not confirm the final image URLs.");
+  }
+}
+
 function selectMarkdownToken(editor: HTMLElement, token: string): boolean {
   if (isTextArea(editor)) {
     const start = editor.value.indexOf(token);
@@ -755,6 +973,17 @@ async function insertIntoEditor(
     }
     if (isTextArea(editor)) {
       setNativeValue(editor, prepared.markdown);
+      if (
+        definition.imageStrategy !== "rich-paste" &&
+        prepared.images.length > 0
+      ) {
+        await uploadTextareaMarkdownImages(
+          resolveEditor,
+          prepared.images,
+          prepared.markdown
+        );
+        return;
+      }
     } else {
       let currentEditor = await clearEditor(resolveEditor);
       await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
@@ -937,21 +1166,28 @@ export async function applyDraftToVisibleEditor(
   }
 
   const definition = DEFINITIONS[payload.platform];
-  const title = queryFirst(definition.titleSelectors);
+  await activateDraftEditor(payload.platform, definition);
+  const title = await resolveTitle(payload.platform, definition, payload.title);
   const resolveEditor = (): HTMLElement | undefined =>
     queryFirst(definition.editorSelectors, title);
   const editor = resolveEditor();
-  if (!title || !isTextInput(title) || !editor) {
+  if (!title || !isEditableTitle(title) || !editor) {
+    const titleState = !title
+      ? "missing"
+      : isEditableTitle(title)
+        ? "found"
+        : "not-editable";
     return {
       errorCode: "editor-not-found",
-      message:
-        "The visible draft editor was not recognized. Sign in, open a draft, and retry.",
+      message: `The visible draft editor was not recognized (title=${titleState}, body=${
+        editor ? "found" : "missing"
+      }; visible controls: ${summarizeVisibleEditors()}). Sign in, open a draft, and retry.`,
       saved: false
     };
   }
 
   const initialSaveStatus = saveEvidenceSignature(definition);
-  setNativeValue(title, payload.title);
+  setTitleValue(title, payload.title);
   try {
     await insertIntoEditor(editor, payload, resolveEditor, definition);
   } catch (error) {
@@ -968,6 +1204,20 @@ export async function applyDraftToVisibleEditor(
       saved: false,
       unknown: true
     };
+  }
+
+  if (definition.saveActionText) {
+    const saveAction = queryExactVisibleText(definition.saveActionText);
+    if (!saveAction) {
+      return {
+        draftUrl: location.href,
+        errorCode: "save-action-not-found",
+        message: `The visible ${definition.saveActionText} action was not found. Do not create another draft automatically.`,
+        saved: false,
+        unknown: true
+      };
+    }
+    saveAction.click();
   }
 
   if (!(await waitForSaveEvidence(definition, initialSaveStatus))) {

@@ -52,12 +52,18 @@
       </section>
 
       <!-- Platform permissions -->
-      <section class="platform-section">
+      <section class="platform-section card">
         <div class="section-heading">
           <h2 class="section-title" data-i18n="permissions.heading">Platforms</h2>
           <span id="permission-summary" class="quiet-badge">0/12</span>
-          <button id="grant-all" class="grant-all-link" type="button" data-i18n="permissions.grantAll">Grant all</button>
         </div>
+        <p class="permission-help" data-i18n="permissions.help">
+          Access is only used to fill visible draft editors. Cookies are never read.
+        </p>
+        <button id="grant-all" class="permission-primary" type="button" disabled data-i18n="permissions.checkingAll">
+          Checking platform access…
+        </button>
+        <p id="permission-feedback" class="permission-feedback" role="status" aria-live="polite"></p>
         <div class="platform-grid">
           <button class="platform-chip" data-platform="zhihu" type="button">
             <span data-i18n="zhihu.label">Zhihu</span>

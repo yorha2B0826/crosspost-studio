@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getDraftRedirectUrl,
   isExpectedDraftUrl,
   isStableDraftUrl,
   NEW_DRAFT_URLS
@@ -29,6 +30,42 @@ describe("platform draft URLs", () => {
     ).toBe(false);
   });
 
+  it("recognizes OSChina's current AI editor and resolves its profile redirect", () => {
+    expect(
+      isExpectedDraftUrl(
+        "oschina",
+        "https://my.oschina.net/u/9762237/blog/ai-write"
+      )
+    ).toBe(true);
+    expect(
+      getDraftRedirectUrl("oschina", "https://my.oschina.net/u/9762237/")
+    ).toBe("https://my.oschina.net/u/9762237/blog/ai-write");
+    expect(
+      getDraftRedirectUrl(
+        "oschina",
+        "https://my.oschina.net.evil.example/u/9762237/"
+      )
+    ).toBeUndefined();
+  });
+
+  it("uses SegmentFault's acknowledged writer route after its first-use guide", () => {
+    expect(NEW_DRAFT_URLS.segmentfault).toBe(
+      "https://segmentfault.com/write?freshman=1"
+    );
+    expect(
+      getDraftRedirectUrl(
+        "segmentfault",
+        "https://segmentfault.com/howtowrite"
+      )
+    ).toBe("https://segmentfault.com/write?freshman=1");
+    expect(
+      getDraftRedirectUrl(
+        "segmentfault",
+        "https://segmentfault.com.evil.example/howtowrite"
+      )
+    ).toBeUndefined();
+  });
+
   it.each([
     ["csdn", "https://editor.csdn.net/md/?articleId=123"],
     ["oschina", "https://my.oschina.net/u/42/blog/write/draft/123"],
@@ -45,11 +82,11 @@ describe("platform draft URLs", () => {
     ],
     [
       "bilibili",
-      "https://member.bilibili.com/platform/upload/text/edit?aid=123"
+      "https://member.bilibili.com/york/read-editor?aid=123"
     ],
     [
       "tencentcloud",
-      "https://cloud.tencent.com/developer/article/write?draftId=123"
+      "https://cloud.tencent.com/developer/article/write-new?draftId=123"
     ]
   ] as const)("accepts a supported %s draft URL", (platform, url) => {
     expect(isExpectedDraftUrl(platform, url)).toBe(true);
@@ -63,8 +100,8 @@ describe("platform draft URLs", () => {
     ["51cto", "https://blog.51cto.com.evil.example/blogger/publish"],
     ["baijiahao", "https://baijiahao.baidu.com.evil.example/builder/rc/edit"],
     ["toutiao", "https://mp.toutiao.com.evil.example/profile_v4/graphic/publish"],
-    ["bilibili", "https://member.bilibili.com.evil.example/platform/upload/text/apply"],
-    ["tencentcloud", "https://cloud.tencent.com.evil.example/developer/article/write"]
+    ["bilibili", "https://member.bilibili.com.evil.example/york/read-editor"],
+    ["tencentcloud", "https://cloud.tencent.com.evil.example/developer/article/write-new"]
   ] as const)("rejects a lookalike %s host", (platform, url) => {
     expect(isExpectedDraftUrl(platform, url)).toBe(false);
   });
@@ -74,8 +111,8 @@ describe("platform draft URLs", () => {
     ["51cto", "https://blog.51cto.com/blogger/publish/preview"],
     ["baijiahao", "https://baijiahao.baidu.com/builder/rc/edit/preview"],
     ["toutiao", "https://mp.toutiao.com/profile_v4/graphic/publish/preview"],
-    ["bilibili", "https://member.bilibili.com/platform/upload/text/edit?aid=not-a-number"],
-    ["tencentcloud", "https://cloud.tencent.com/developer/article/write/preview"]
+    ["bilibili", "https://member.bilibili.com/article-text/home?aid=not-a-number"],
+    ["tencentcloud", "https://cloud.tencent.com/developer/article/write-new/preview"]
   ] as const)("rejects an unrelated %s route on the real host", (platform, url) => {
     expect(isExpectedDraftUrl(platform, url)).toBe(false);
   });
@@ -104,25 +141,25 @@ describe("platform draft URLs", () => {
     expect(
       isStableDraftUrl(
         "bilibili",
-        "https://member.bilibili.com/platform/upload/text/apply"
+        "https://member.bilibili.com/york/read-editor?newEditor=-1"
       )
     ).toBe(false);
     expect(
       isStableDraftUrl(
         "bilibili",
-        "https://member.bilibili.com/platform/upload/text/edit?aid=123"
+        "https://member.bilibili.com/york/read-editor?aid=123"
       )
     ).toBe(true);
     expect(
       isStableDraftUrl(
         "tencentcloud",
-        "https://cloud.tencent.com/developer/article/write"
+        "https://cloud.tencent.com/developer/article/write-new"
       )
     ).toBe(false);
     expect(
       isStableDraftUrl(
         "tencentcloud",
-        "https://cloud.tencent.com/developer/article/write?draftId=123"
+        "https://cloud.tencent.com/developer/article/write-new?draftId=123"
       )
     ).toBe(true);
   });

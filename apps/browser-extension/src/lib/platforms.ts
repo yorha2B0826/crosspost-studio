@@ -18,14 +18,14 @@ export const PLATFORM_ORIGINS: Record<BrowserPlatform, string[]> = {
 export const NEW_DRAFT_URLS: Record<BrowserPlatform, string> = {
   "51cto": "https://blog.51cto.com/blogger/publish",
   baijiahao: "https://baijiahao.baidu.com/builder/rc/edit?type=news",
-  bilibili: "https://member.bilibili.com/platform/upload/text/apply",
-  cnblogs: "https://i.cnblogs.com/posts/edit",
+  bilibili: "https://member.bilibili.com/york/read-editor?newEditor=-1",
+  cnblogs: "https://i.cnblogs.com/articles/edit",
   csdn: "https://editor.csdn.net/md/",
   jianshu: "https://www.jianshu.com/writer",
   juejin: "https://juejin.cn/editor/drafts/new",
-  oschina: "https://my.oschina.net/blog/write",
-  segmentfault: "https://segmentfault.com/write",
-  tencentcloud: "https://cloud.tencent.com/developer/article/write",
+  oschina: "https://my.oschina.net/blog/ai-write",
+  segmentfault: "https://segmentfault.com/write?freshman=1",
+  tencentcloud: "https://cloud.tencent.com/developer/article/write-new",
   toutiao: "https://mp.toutiao.com/profile_v4/graphic/publish",
   zhihu: "https://zhuanlan.zhihu.com/write"
 };
@@ -51,9 +51,9 @@ export function isExpectedDraftUrl(platform: BrowserPlatform, value: string): bo
       case "bilibili":
         return (
           url.hostname === "member.bilibili.com" &&
-          (url.pathname === "/platform/upload/text/apply" ||
-            (url.pathname === "/platform/upload/text/edit" &&
-              /^\d+$/.test(url.searchParams.get("aid") ?? "")))
+          ["/article-text/home", "/york/read-editor"].includes(url.pathname) &&
+          (url.searchParams.get("newEditor") === "-1" ||
+            /^\d+$/.test(url.searchParams.get("aid") ?? ""))
         );
       case "cnblogs":
         return (
@@ -74,8 +74,10 @@ export function isExpectedDraftUrl(platform: BrowserPlatform, value: string): bo
       case "oschina":
         return (
           url.hostname === "my.oschina.net" &&
-          (/^\/blog\/write\/?$/.test(url.pathname) ||
-            /^\/u\/[^/]+\/blog\/write(?:\/draft\/[^/]+)?\/?$/.test(url.pathname))
+          (/^\/blog\/(?:ai-)?write\/?$/.test(url.pathname) ||
+            /^\/u\/[^/]+\/blog\/(?:ai-)?write(?:\/draft\/[^/]+)?\/?$/.test(
+              url.pathname
+            ))
         );
       case "segmentfault":
         return (
@@ -85,7 +87,7 @@ export function isExpectedDraftUrl(platform: BrowserPlatform, value: string): bo
       case "tencentcloud":
         return (
           url.hostname === "cloud.tencent.com" &&
-          url.pathname === "/developer/article/write"
+          url.pathname === "/developer/article/write-new"
         );
       case "toutiao":
         return (
@@ -105,6 +107,35 @@ export function isExpectedDraftUrl(platform: BrowserPlatform, value: string): bo
   }
 }
 
+export function getDraftRedirectUrl(
+  platform: BrowserPlatform,
+  value: string
+): string | undefined {
+  try {
+    const url = new URL(value);
+    if (platform === "oschina") {
+      const profile =
+        url.protocol === "https:" && url.hostname === "my.oschina.net"
+          ? url.pathname.match(/^\/u\/(\d+)\/?$/)
+          : undefined;
+      return profile?.[1]
+        ? `https://my.oschina.net/u/${profile[1]}/blog/ai-write`
+        : undefined;
+    }
+    if (
+      platform === "segmentfault" &&
+      url.protocol === "https:" &&
+      url.hostname === "segmentfault.com" &&
+      url.pathname === "/howtowrite"
+    ) {
+      return "https://segmentfault.com/write?freshman=1";
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function isStableDraftUrl(
   platform: BrowserPlatform,
   value: string
@@ -115,7 +146,7 @@ export function isStableDraftUrl(
   const url = new URL(value);
   if (platform === "bilibili") {
     return (
-      url.pathname === "/platform/upload/text/edit" &&
+      ["/article-text/home", "/york/read-editor"].includes(url.pathname) &&
       /^\d+$/.test(url.searchParams.get("aid") ?? "")
     );
   }
