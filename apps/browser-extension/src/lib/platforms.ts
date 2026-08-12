@@ -30,6 +30,48 @@ export const NEW_DRAFT_URLS: Record<BrowserPlatform, string> = {
   zhihu: "https://zhuanlan.zhihu.com/write"
 };
 
+function normalizedComparableUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    url.pathname =
+      url.pathname.length > 1 ? url.pathname.replace(/\/+$/, "") : url.pathname;
+    url.searchParams.sort();
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+export function areEquivalentDraftUrls(first: string, second: string): boolean {
+  const normalizedFirst = normalizedComparableUrl(first);
+  return (
+    normalizedFirst !== undefined &&
+    normalizedFirst === normalizedComparableUrl(second)
+  );
+}
+
+export function canonicalizeBilibiliDraftUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.hostname !== "member.bilibili.com") {
+      return undefined;
+    }
+    const aid = url.searchParams.get("aid");
+    if (!/^\d+$/.test(aid ?? "")) {
+      return undefined;
+    }
+    if (url.pathname === "/article-text/home") {
+      return url.toString();
+    }
+    if (["/york/read-edit", "/york/read-editor"].includes(url.pathname)) {
+      return `https://member.bilibili.com/york/read-editor?aid=${aid}`;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function isExpectedDraftUrl(platform: BrowserPlatform, value: string): boolean {
   try {
     const url = new URL(value);
@@ -87,7 +129,9 @@ export function isExpectedDraftUrl(platform: BrowserPlatform, value: string): bo
       case "tencentcloud":
         return (
           url.hostname === "cloud.tencent.com" &&
-          url.pathname === "/developer/article/write-new"
+          ["/developer/article/write", "/developer/article/write-new"].includes(
+            url.pathname
+          )
         );
       case "toutiao":
         return (
@@ -144,16 +188,68 @@ export function isStableDraftUrl(
     return false;
   }
   const url = new URL(value);
-  if (platform === "bilibili") {
-    return (
-      ["/article-text/home", "/york/read-editor"].includes(url.pathname) &&
-      /^\d+$/.test(url.searchParams.get("aid") ?? "")
-    );
+  const numericQuery = (...keys: string[]): boolean =>
+    keys.some((key) => /^\d+$/.test(url.searchParams.get(key) ?? ""));
+  switch (platform) {
+    case "51cto":
+      return /^\/blogger\/draft\/[^/]+\/?$/.test(url.pathname);
+    case "baijiahao":
+      return numericQuery("article_id");
+    case "bilibili":
+      return numericQuery("aid");
+    case "cnblogs":
+      return (
+        numericQuery("postId") ||
+        /(?:^|;)postId=\d+(?:$|;)/.test(url.pathname)
+      );
+    case "csdn":
+      return numericQuery("articleId", "id");
+    case "jianshu":
+      return (
+        /^\/p\/[a-f0-9]+\/edit\/?$/.test(url.pathname) ||
+        /^#\/notebooks\/[^/]+\/notes\/[^/]+\/?$/.test(url.hash)
+      );
+    case "juejin":
+      return /^\/editor\/drafts\/\d+\/?$/.test(url.pathname);
+    case "oschina":
+      return /^\/u\/[^/]+\/blog\/(?:ai-)?write\/draft\/[^/]+\/?$/.test(
+        url.pathname
+      );
+    case "segmentfault":
+      return numericQuery("draftId");
+    case "tencentcloud":
+      return numericQuery("articleId", "draftId", "id");
+    case "toutiao":
+      return numericQuery("pgc_id");
+    case "zhihu":
+      return /^\/p\/\d+\/edit\/?$/.test(url.pathname);
   }
-  if (platform === "tencentcloud") {
-    return ["articleId", "draftId", "id"].some((key) =>
-      /^\d+$/.test(url.searchParams.get(key) ?? "")
-    );
+}
+
+export async function waitForStableDraftUrl(
+  platform: BrowserPlatform,
+  initialUrl: string | undefined,
+  readCurrentUrl: () => Promise<string | undefined>,
+  pauseBeforeRetry: () => Promise<void>,
+  attempts = 20
+): Promise<string | undefined> {
+  let candidate = initialUrl;
+  for (let attempt = 0; attempt <= attempts; attempt += 1) {
+    if (candidate && isStableDraftUrl(platform, candidate)) {
+      return candidate;
+    }
+    if (attempt === attempts) {
+      break;
+    }
+    try {
+      candidate = await readCurrentUrl();
+    } catch {
+      return undefined;
+    }
+    if (candidate && isStableDraftUrl(platform, candidate)) {
+      return candidate;
+    }
+    await pauseBeforeRetry();
   }
-  return true;
+  return undefined;
 }

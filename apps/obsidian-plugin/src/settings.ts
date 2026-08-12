@@ -42,7 +42,7 @@ export const DEFAULT_SETTINGS: CrosspostSettings = {
   customCssSnippets: {},
   pairingSecretId: "crosspost-studio-bridge-key",
   publicationStates: {},
-  theme: "minimal",
+  theme: "academic",
   wechatAppId: "",
   wechatAppSecretId: "crosspost-wechat-app-secret"
 };

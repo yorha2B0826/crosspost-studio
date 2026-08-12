@@ -42,7 +42,10 @@ test-vault/          Acceptance samples isolated from your main vault (no .obsid
 - Obsidian Desktop 1.11.5+, macOS or Windows
 - Chromium 116+, Chrome or Edge
 - GFM, Obsidian image embeds, code blocks, tables, Mermaid, inline & block LaTeX
-- Three built-in themes: Minimal, Academic, Tech
+- Fifteen built-in themes: Minimal, Academic, Tech, Warm, Bold, Elegant, Fresh,
+  Dark, Zen, Ocean, Paper, Cherry, Forest, Mono, Vintage. Every theme inlines
+  its styles for WeChat-safe publishing (no pseudo-elements, pseudo-classes, or
+  gradient backgrounds)
 - Vault-level custom CSS; only properties scoped under `#crosspost-root` and on an
   allowlist are accepted
 
@@ -82,6 +85,12 @@ load them as an unpacked extension in your browser's extensions page.
    the corresponding host permission at that point.
 6. Log into the platforms and keep the visible draft editor accessible, then save
    drafts from the workbench.
+
+For a manual WeChat handoff, use **Copy WeChat layout** for a normal rich-text
+paste. If a WeChat source-editor helper is installed, use **Copy HTML source**
+and its clipboard-insert action instead. The source-copy path is derived output;
+the Obsidian Markdown note remains canonical. Verify local article images in the
+WeChat editor because literal HTML insertion may not trigger its upload flow.
 
 ## Installation
 
@@ -282,7 +291,9 @@ test-vault/          与主 Vault 隔离的验收样例（不包含 .obsidian �
 - Obsidian Desktop 1.11.5+，macOS 或 Windows
 - Chromium 116+，Chrome 或 Edge
 - GFM、Obsidian 图片嵌入、代码块、表格、Mermaid、行内与行间 LaTeX
-- Minimal、Academic、Tech 三套内置主题
+- Minimal、Academic、Tech、Warm、Bold、Elegant、Fresh、Dark、Zen、Ocean、
+  Paper、Cherry、Forest、Mono、Vintage 十五套内置主题；所有主题样式均内联
+  输出，规避伪元素、伪类与渐变背景，确保微信平台发布兼容
 - Vault 内自定义 CSS；仅接受以 `#crosspost-root` 作用域开头且位于白名单内的属性
 
 ## 本地开发
@@ -316,6 +327,11 @@ Vault 的 `.obsidian/plugins/crosspost-studio/`，再启用插件。Chromium 扩
 4. 点击"Copy pairing key"，把密钥粘贴到扩展弹窗。
 5. 仅为需要的平台点击对应"启用"按钮。浏览器会在此时请求该站域名权限。
 6. 登录平台并保持可见草稿编辑器可访问，然后从工作台保存草稿。
+
+手工交付到微信时，普通粘贴请使用 **复制公众号排版**。如果已安装公众号源码
+编辑助手，则使用 **复制 HTML 源码**，再在助手中执行剪贴板插入。HTML 只是
+派生输出，Obsidian Markdown 笔记仍是唯一源稿。源码插入可能不会触发微信的本地图片
+上传流程，因此需在公众号编辑器中再确认正文图片。
 
 ## 安装
 

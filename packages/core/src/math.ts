@@ -20,7 +20,11 @@ const mathDocument = mathjax.document("", {
   OutputJax: svg
 });
 
-export function renderMathSvg(latex: string, display: boolean): string {
+export function renderMathSvg(
+  latex: string,
+  display: boolean,
+  color: "fixed" | "inherit" = "fixed"
+): string {
   const converted: unknown = mathDocument.convert(latex, {
     display,
     em: 16,
@@ -35,7 +39,8 @@ export function renderMathSvg(latex: string, display: boolean): string {
   if (!match) {
     throw new Error("MathJax did not produce an SVG element.");
   }
-  const markupWithColor = match[0].replace(/currentColor/g, "#1f2328");
+  const markupWithColor =
+    color === "inherit" ? match[0] : match[0].replace(/currentColor/g, "#1f2328");
   const openingTag = markupWithColor.slice(0, markupWithColor.indexOf(">"));
   if (/\bxmlns=/.test(openingTag)) {
     return markupWithColor;

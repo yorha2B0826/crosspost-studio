@@ -3,15 +3,31 @@ import type {
   ApplyDraftResult,
   BrowserPlatform
 } from "./messages";
+import { browserSvgToPng } from "@crosspost/core/rasterize";
 
 interface PlatformDomDefinition {
   contentMode: "adaptive" | "markdown" | "rich-html";
+  editorReadyTimeoutMs?: number;
   editorSelectors: string[];
   imageStrategy: "adaptive" | "markdown-paste" | "rich-paste";
+  markdownImageDialog?: MarkdownImageDialogDefinition;
+  nativeRichImageUpload?: boolean;
+  postInsertSettleMs?: number;
+  replaceExistingRichContentByPaste?: boolean;
+  richImageDropFallback?: boolean;
+  rewriteMarkdownAfterDialogUploads?: boolean;
   saveActionText?: string;
   saveEvidenceSelectors: string[];
   saveEvidenceText: RegExp;
   titleSelectors: string[];
+}
+
+interface MarkdownImageDialogDefinition {
+  closeSelectors: string[];
+  confirmText?: string;
+  dialogSelectors: string[];
+  inputSelectors: string[];
+  triggerSelectors: string[];
 }
 
 interface EmbeddedImage {
@@ -20,7 +36,13 @@ interface EmbeddedImage {
   token: string;
 }
 
+export interface DomAdapterRuntime {
+  setCsdnMarkdown?: (markdown: string) => Promise<string | undefined>;
+  uploadBilibiliImage?: (file: File, token: string) => Promise<string | undefined>;
+}
+
 class InvalidInlineImageError extends Error {}
+class MarkdownImageDialogUnavailableError extends Error {}
 
 const ZHIHU_IMPORT_FAILURE_IMAGE =
   "v2-4f89913ab376925632be5823a038f938";
@@ -83,6 +105,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
   bilibili: {
     contentMode: "rich-html",
     editorSelectors: [
+      ".tiptap.ProseMirror.eva3-editor[contenteditable='true']",
       "textarea[placeholder='请输入正文']",
       "[contenteditable='true'][data-placeholder='请输入正文']",
       "[contenteditable='true'][aria-label='请输入正文']",
@@ -93,8 +116,14 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "[class*='editor'] [contenteditable='true']"
     ],
     imageStrategy: "rich-paste",
+    nativeRichImageUpload: true,
+    postInsertSettleMs: 1_500,
+    replaceExistingRichContentByPaste: true,
+    richImageDropFallback: true,
     saveActionText: "保存为草稿",
     saveEvidenceSelectors: [
+      ".save-tip",
+      ".vui_toast",
       "[class*='save-status']",
       "[class*='draft-status']",
       "[class*='autosave']",
@@ -104,6 +133,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
     saveEvidenceText:
       /草稿已保存|保存草稿成功|保存成功|自动保存成功|已自动保存|已保存/,
     titleSelectors: [
+      "textarea.title-input__inner[placeholder*='标题']",
       "input[placeholder*='标题']",
       "textarea[placeholder*='标题']",
       "input[class*='title']",
@@ -124,6 +154,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
     imageStrategy: "rich-paste",
     saveEvidenceSelectors: [
       "div:has(#editor) > p",
+      "p._3-3KB",
       "[class*='save']",
       "[class*='Save']",
       "[class*='status']",
@@ -132,6 +163,8 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
     saveEvidenceText: /草稿已保存|保存成功|已保存/,
     titleSelectors: [
       "div:has(> div > #editor) > input",
+      "div:has(> ul [data-action='publicize']):has(#editor) > input[type='text']",
+      "input._24i7u",
       "input[placeholder*='标题']",
       "textarea[placeholder*='标题']",
       "input[class*='title']",
@@ -150,7 +183,10 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "textarea"
     ],
     imageStrategy: "markdown-paste",
+    saveActionText: "存为草稿",
     saveEvidenceSelectors: [
+      ".ant-message-success",
+      "[role='status']",
       "[class*='save-status']",
       "[class*='autosave']",
       "[class*='draft-status']",
@@ -158,6 +194,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
     ],
     saveEvidenceText: /草稿已保存|保存成功|自动保存成功|已保存/,
     titleSelectors: [
+      "input.field__control--title",
       "input#post-title",
       "input#Editor_Edit_txbTitle",
       "input[name='postTitle']",
@@ -167,6 +204,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
   },
   csdn: {
     contentMode: "markdown",
+    editorReadyTimeoutMs: 8_000,
     editorSelectors: [
       "pre.editor__inner.markdown-highlighting[contenteditable='true']",
       ".monaco-editor textarea.inputarea",
@@ -177,6 +215,16 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "textarea"
     ],
     imageStrategy: "markdown-paste",
+    rewriteMarkdownAfterDialogUploads: true,
+    markdownImageDialog: {
+      closeSelectors: ["button.modal__close-button", "button[aria-label='关闭']"],
+      confirmText: "确定",
+      dialogSelectors: ["[role='dialog'][aria-label='Insert image']"],
+      inputSelectors: [
+        "[role='dialog'][aria-label='Insert image'] input[type='file'][accept*='image']"
+      ],
+      triggerSelectors: ["button[data-title^='图片']"]
+    },
     saveEvidenceSelectors: [
       "[class*='save-status']",
       "[class*='autosave']",
@@ -228,7 +276,10 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "textarea"
     ],
     imageStrategy: "rich-paste",
+    replaceExistingRichContentByPaste: true,
+    saveActionText: "草稿箱",
     saveEvidenceSelectors: [
+      ".ant-message-success",
       ".publish-right-title",
       "[class*='save-status']",
       "[class*='autosave']",
@@ -236,7 +287,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "[class*='status']"
     ],
     saveEvidenceText:
-      /文章.*保存至草稿箱|草稿已保存|保存成功|自动保存成功|已保存/,
+      /文章.*保存至草稿箱|保存草稿成功|草稿已保存|保存成功|自动保存成功|已保存/,
     titleSelectors: [
       "input[name='title']",
       "input[placeholder*='标题']",
@@ -255,6 +306,15 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "textarea"
     ],
     imageStrategy: "markdown-paste",
+    markdownImageDialog: {
+      closeSelectors: ["button[aria-label='Close']", "button.btn-close"],
+      confirmText: "确定",
+      dialogSelectors: ["[role='dialog'][aria-modal='true']"],
+      inputSelectors: [
+        "[role='dialog'] input[type='file'][id='editor.imgLink']"
+      ],
+      triggerSelectors: ["button.icon-image"]
+    },
     saveEvidenceSelectors: [
       "[class*='save-status']",
       "[class*='draft-status']",
@@ -272,7 +332,9 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
   },
   tencentcloud: {
     contentMode: "adaptive",
+    editorReadyTimeoutMs: 8_000,
     editorSelectors: [
+      ".tiptap.ProseMirror.cdc-rich-editor[contenteditable='true']",
       ".CodeMirror textarea",
       ".cm-editor .cm-content[contenteditable='true']",
       ".monaco-editor textarea.inputarea",
@@ -283,7 +345,11 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "textarea[class*='editor']"
     ],
     imageStrategy: "adaptive",
+    saveActionText: "存草稿",
     saveEvidenceSelectors: [
+      "[role='alert']",
+      "[class*='message']",
+      "[class*='toast']",
       "[class*='save-status']",
       "[class*='draft-status']",
       "[class*='autosave']",
@@ -291,8 +357,9 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "[role='status']"
     ],
     saveEvidenceText:
-      /草稿已保存|内容已自动保存|保存成功|自动保存成功|已自动保存|已保存/,
+      /保存草稿成功|草稿已保存|内容已自动保存|保存成功|自动保存成功|已自动保存|已保存/,
     titleSelectors: [
+      "textarea.cdc-article-editor__title-input",
       "input[placeholder*='文章标题']",
       "textarea[placeholder*='文章标题']",
       "input[placeholder*='标题']",
@@ -366,8 +433,26 @@ function queryFirst(
   return undefined;
 }
 
-function queryExactVisibleText(value: string): HTMLElement | undefined {
-  return Array.from(document.querySelectorAll<HTMLElement>("body *")).find(
+function queryDialogInput(
+  selectors: string[],
+  dialog: HTMLElement
+): HTMLInputElement | undefined {
+  for (const selector of selectors) {
+    for (const input of document.querySelectorAll<HTMLInputElement>(selector)) {
+      if (dialog.contains(input)) {
+        return input;
+      }
+    }
+  }
+  return undefined;
+}
+
+function queryExactVisibleText(
+  value: string,
+  root: ParentNode = document
+): HTMLElement | undefined {
+  return Array.from(root.querySelectorAll<HTMLElement>("*"))
+    .find(
     (element) =>
       element.childElementCount === 0 &&
       element.textContent?.trim() === value &&
@@ -379,15 +464,28 @@ async function activateDraftEditor(
   platform: BrowserPlatform,
   definition: PlatformDomDefinition
 ): Promise<void> {
+  const editorIsReady = (): boolean =>
+    Boolean(queryFirst(definition.editorSelectors));
+  if (editorIsReady()) {
+    return;
+  }
   if (
-    platform !== "jianshu" ||
-    (queryFirst(definition.titleSelectors) &&
-      queryFirst(definition.editorSelectors))
+    definition.editorReadyTimeoutMs &&
+    (await waitFor(editorIsReady, definition.editorReadyTimeoutMs))
   ) {
     return;
   }
 
-  const activator = queryExactVisibleText("新建文章");
+  const activatorText =
+    platform === "jianshu"
+      ? "新建文章"
+      : platform === "oschina"
+        ? "切换到MD编辑器"
+        : undefined;
+  if (!activatorText) {
+    return;
+  }
+  const activator = queryExactVisibleText(activatorText);
   if (!activator) {
     return;
   }
@@ -543,6 +641,37 @@ function extensionForMimeType(mimeType: string): string {
   return "png";
 }
 
+async function readFileText(file: File): Promise<string> {
+  if (typeof file.text === "function") {
+    return file.text();
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      resolve(typeof reader.result === "string" ? reader.result : "");
+    });
+    reader.addEventListener("error", () => {
+      reject(reader.error ?? new Error("The image file could not be read."));
+    });
+    reader.readAsText(file);
+  });
+}
+
+async function browserCompatibleUploadFile(file: File): Promise<File> {
+  if (file.type.toLowerCase() !== "image/svg+xml") {
+    return file;
+  }
+  const rasterized = await browserSvgToPng(await readFileText(file), true);
+  return new File(
+    [new Uint8Array(rasterized.bytes)],
+    file.name.replace(/\.svg$/i, ".png"),
+    {
+      lastModified: file.lastModified,
+      type: "image/png"
+    }
+  );
+}
+
 export function extractEmbeddedImages(
   html: string,
   jobId: string
@@ -673,14 +802,67 @@ function isResolvedRichEditorImage(image: HTMLImageElement): boolean {
   return (
     image.complete &&
     image.naturalWidth > 0 &&
-    /^https:\/\//.test(image.src) &&
+    /^https?:\/\//.test(image.src) &&
     !image.src.includes(ZHIHU_IMPORT_FAILURE_IMAGE)
   );
 }
 
+function resolvedImageSourceCounts(editor: HTMLElement): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const image of editor.querySelectorAll<HTMLImageElement>("img")) {
+    if (!isResolvedRichEditorImage(image)) {
+      continue;
+    }
+    counts.set(image.src, (counts.get(image.src) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function hasAdditionalResolvedImage(
+  editor: HTMLElement,
+  initialCounts: ReadonlyMap<string, number>
+): boolean {
+  const currentCounts = resolvedImageSourceCounts(editor);
+  return Array.from(currentCounts).some(
+    ([source, count]) => count > (initialCounts.get(source) ?? 0)
+  );
+}
+
+function removeTransientRichEditorImages(editor: HTMLElement): void {
+  let removed = false;
+  for (const image of editor.querySelectorAll<HTMLImageElement>(
+    "img[src^='data:'], img[src^='blob:']"
+  )) {
+    const container = image.closest(".eva3-enhanced-image-wrapper, figure");
+    (container ?? image).remove();
+    removed = true;
+  }
+  if (removed) {
+    dispatchEditorInput(editor, "deleteContentBackward");
+  }
+}
+
+function selectImageToken(
+  editor: HTMLElement,
+  token: string
+): { range: Range; selection: Selection } | undefined {
+  const range = findTokenRange(editor, token);
+  const selection = window.getSelection();
+  if (!range || !selection) {
+    return undefined;
+  }
+  editor.focus();
+  selection.removeAllRanges();
+  selection.addRange(range);
+  document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+  return { range, selection };
+}
+
 async function pasteImageAtToken(
   resolveEditor: () => HTMLElement | undefined,
-  image: EmbeddedImage
+  image: EmbeddedImage,
+  useDropFallback = false,
+  nativeUpload?: (file: File, token: string) => Promise<string | undefined>
 ): Promise<void> {
   const tokenAppeared = await waitFor(
     () => resolveEditor()?.textContent?.includes(image.token) === true,
@@ -690,20 +872,41 @@ async function pasteImageAtToken(
   if (!editor) {
     throw new Error("The editor was replaced before an image could be inserted.");
   }
-  const range = tokenAppeared ? findTokenRange(editor, image.token) : undefined;
-  const selection = window.getSelection();
-  if (!range || !selection) {
+  const insertion = tokenAppeared
+    ? selectImageToken(editor, image.token)
+    : undefined;
+  if (!insertion) {
     throw new Error("An image insertion point was lost while filling the editor.");
   }
 
-  editor.focus();
-  selection.removeAllRanges();
-  selection.addRange(range);
-  document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+  if (nativeUpload) {
+    const uploadFile = await browserCompatibleUploadFile(image.file);
+    const uploadedUrl = await nativeUpload(uploadFile, image.token);
+    if (
+      !uploadedUrl ||
+      !/^(?:https?:\/\/|data:image\/|blob:)/i.test(uploadedUrl)
+    ) {
+      throw new Error("The platform did not confirm its native image upload.");
+    }
+    const currentEditor = resolveEditor();
+    if (!currentEditor) {
+      throw new Error("The editor was replaced after its native image upload.");
+    }
+    const remainingToken = findTokenRange(currentEditor, image.token);
+    if (remainingToken) {
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(remainingToken);
+      remainingToken.deleteContents();
+      dispatchEditorInput(currentEditor, "deleteContentBackward");
+    }
+    return;
+  }
 
-  const imageCount = editor.querySelectorAll("img").length;
+  const initialResolvedImages = resolvedImageSourceCounts(editor);
+  const uploadFile = await browserCompatibleUploadFile(image.file);
   const transfer = new DataTransfer();
-  transfer.items.add(image.file);
+  transfer.items.add(uploadFile);
   const handled = !editor.dispatchEvent(
     new ClipboardEvent("paste", {
       bubbles: true,
@@ -715,22 +918,60 @@ async function pasteImageAtToken(
     throw new Error("The editor did not accept an image file paste.");
   }
 
-  const uploaded = await waitFor(
-    () => {
-      const currentEditor = resolveEditor();
-      if (!currentEditor) {
-        return false;
-      }
-      const uploadedImages = Array.from(
-        currentEditor.querySelectorAll<HTMLImageElement>("img")
-      );
-      return (
-        uploadedImages.length > imageCount &&
-        uploadedImages.some(isResolvedRichEditorImage)
-      );
-    },
-    30_000
+  const editorAfterPaste = resolveEditor();
+  const hasTransientPaste = Boolean(
+    editorAfterPaste?.querySelector("img[src^='data:'], img[src^='blob:']")
   );
+  let uploaded = Boolean(
+    editorAfterPaste &&
+      hasAdditionalResolvedImage(editorAfterPaste, initialResolvedImages)
+  );
+  if (!uploaded && !(useDropFallback && hasTransientPaste)) {
+    uploaded = await waitFor(
+      () => {
+        const currentEditor = resolveEditor();
+        return Boolean(
+          currentEditor &&
+            hasAdditionalResolvedImage(currentEditor, initialResolvedImages)
+        );
+      },
+      useDropFallback ? 1_500 : 30_000
+    );
+  }
+
+  if (!uploaded && useDropFallback && typeof DragEvent !== "undefined") {
+    const currentEditor = resolveEditor();
+    if (currentEditor) {
+      removeTransientRichEditorImages(currentEditor);
+      const dropInsertion = selectImageToken(currentEditor, image.token);
+      if (dropInsertion) {
+        const dropTransfer = new DataTransfer();
+        dropTransfer.items.add(uploadFile);
+        const rect = dropInsertion.range.getBoundingClientRect?.();
+        const dragInit: DragEventInit = {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect ? rect.left + rect.width / 2 : 0,
+          clientY: rect ? rect.top + rect.height / 2 : 0,
+          dataTransfer: dropTransfer
+        };
+        currentEditor.dispatchEvent(new DragEvent("dragenter", dragInit));
+        currentEditor.dispatchEvent(new DragEvent("dragover", dragInit));
+        const dropHandled = !currentEditor.dispatchEvent(
+          new DragEvent("drop", dragInit)
+        );
+        if (dropHandled) {
+          uploaded = await waitFor(() => {
+            const liveEditor = resolveEditor();
+            return Boolean(
+              liveEditor &&
+                hasAdditionalResolvedImage(liveEditor, initialResolvedImages)
+            );
+          }, 30_000);
+        }
+      }
+    }
+  }
   if (!uploaded) {
     throw new Error("The platform did not confirm a rich-text image upload.");
   }
@@ -740,8 +981,8 @@ async function pasteImageAtToken(
     ? findTokenRange(currentEditor, image.token)
     : undefined;
   if (remainingToken) {
-    selection.removeAllRanges();
-    selection.addRange(remainingToken);
+    insertion.selection.removeAllRanges();
+    insertion.selection.addRange(remainingToken);
     remainingToken.deleteContents();
     if (currentEditor) {
       dispatchEditorInput(currentEditor, "deleteContentBackward");
@@ -768,6 +1009,454 @@ function extractHttpUrls(value: string): Set<string> {
   return new Set(value.match(/https?:\/\/[^\s)]+/g) ?? []);
 }
 
+function httpUrlCounts(value: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const url of value.match(/https?:\/\/[^\s)]+/g) ?? []) {
+    counts.set(url, (counts.get(url) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function additionalHttpUrl(
+  value: string,
+  previousCounts: ReadonlyMap<string, number>
+): string | undefined {
+  const currentCounts = httpUrlCounts(value);
+  return Array.from(currentCounts).find(
+    ([url, count]) => count > (previousCounts.get(url) ?? 0)
+  )?.[0];
+}
+
+function markdownEditorVisibleText(editor: HTMLElement): string {
+  if (
+    editor.matches(
+      "pre.editor__inner.markdown-highlighting[contenteditable='true']"
+    )
+  ) {
+    return editor.textContent ?? editor.innerText;
+  }
+  return isTextArea(editor)
+    ? markdownEditorText(editor)
+    : editor.innerText || editableText(editor);
+}
+
+function assignUploadFile(input: HTMLInputElement, file: File): void {
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  try {
+    input.files = transfer.files;
+  } catch {
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: transfer.files
+    });
+  }
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+async function uploadThroughMarkdownImageDialog(
+  definition: MarkdownImageDialogDefinition,
+  file: File,
+  hasUploaded: () => boolean
+): Promise<boolean> {
+  let dialog = queryFirst(definition.dialogSelectors);
+  let input = dialog
+    ? queryDialogInput(definition.inputSelectors, dialog)
+    : undefined;
+  if (!dialog || !input) {
+    let opened = false;
+    for (let attempt = 0; attempt < 3 && !opened; attempt += 1) {
+      const trigger = queryFirst(definition.triggerSelectors);
+      if (!trigger) {
+        throw new MarkdownImageDialogUnavailableError(
+          "The platform image upload action was not found."
+        );
+      }
+      trigger.click();
+      opened = await waitFor(() => {
+        dialog = queryFirst(definition.dialogSelectors);
+        input = dialog
+          ? queryDialogInput(definition.inputSelectors, dialog)
+          : undefined;
+        return Boolean(dialog && input);
+      }, 2_000);
+      if (!opened) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 150));
+      }
+    }
+    if (!opened || !dialog || !input) {
+      throw new MarkdownImageDialogUnavailableError(
+        "The platform image upload dialog did not open."
+      );
+    }
+  }
+
+  assignUploadFile(input, file);
+  if (await waitFor(hasUploaded, 500)) {
+    const close = queryFirst(definition.closeSelectors);
+    close?.click();
+    await waitFor(
+      () => !queryFirst(definition.dialogSelectors),
+      close ? 2_000 : 500
+    );
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+    return true;
+  }
+
+  if (definition.confirmText) {
+    let confirm = queryExactVisibleText(definition.confirmText, dialog);
+    const confirmReady = await waitFor(() => {
+      dialog = queryFirst(definition.dialogSelectors) ?? dialog;
+      confirm = queryExactVisibleText(definition.confirmText!, dialog);
+      return Boolean(
+        confirm &&
+          (confirm.localName !== "button" ||
+            !(confirm as HTMLButtonElement).disabled)
+      );
+    }, 5_000);
+    if (confirmReady && confirm) {
+      confirm.click();
+    }
+  }
+
+  const uploaded = await waitFor(hasUploaded, 30_000);
+  if (!uploaded) {
+    queryFirst(definition.closeSelectors)?.click();
+  } else {
+    const close = queryFirst(definition.closeSelectors);
+    close?.click();
+    await waitFor(
+      () => !queryFirst(definition.dialogSelectors),
+      close ? 2_000 : 500
+    );
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+  }
+  return uploaded;
+}
+
+async function uploadTextareaMarkdownImagesWithDialog(
+  resolveEditor: () => HTMLElement | undefined,
+  images: EmbeddedImage[],
+  markdown: string,
+  definition: MarkdownImageDialogDefinition
+): Promise<void> {
+  const replacements = new Map<string, string>();
+  for (const image of images) {
+    const editor = resolveEditor();
+    if (!editor || !isTextArea(editor)) {
+      throw new Error("The Markdown editor was replaced during an image upload.");
+    }
+    const previousUrls = extractHttpUrls(markdownEditorText(editor));
+    editor.focus();
+    editor.setSelectionRange(editor.value.length, editor.value.length);
+    let uploadedUrl: string | undefined;
+    const uploaded = await uploadThroughMarkdownImageDialog(
+      definition,
+      await browserCompatibleUploadFile(image.file),
+      () => {
+        const current = resolveEditor();
+        if (!current || !isTextArea(current)) {
+          return false;
+        }
+        uploadedUrl = Array.from(
+          extractHttpUrls(markdownEditorText(current))
+        ).find((url) => !previousUrls.has(url));
+        return uploadedUrl !== undefined;
+      }
+    );
+    if (!uploaded || !uploadedUrl) {
+      throw new Error("The platform did not confirm its image dialog upload.");
+    }
+    replacements.set(image.token, uploadedUrl);
+  }
+
+  const editor = resolveEditor();
+  if (!editor || !isTextArea(editor)) {
+    throw new Error("The Markdown editor disappeared before finalizing images.");
+  }
+  let finalizedMarkdown = markdown;
+  for (const [token, url] of replacements) {
+    const alt = images.find((image) => image.token === token)?.alt;
+    finalizedMarkdown = finalizedMarkdown.replaceAll(
+      token,
+      `![${alt || "crosspost image"}](${url})`
+    );
+  }
+  setNativeValue(editor, finalizedMarkdown);
+  const finalized = await waitFor(() => {
+    const current = resolveEditor();
+    if (!current || !isTextArea(current)) {
+      return false;
+    }
+    const text = markdownEditorText(current);
+    return (
+      !text.includes("CROSSPOST_IMAGE_") &&
+      Array.from(replacements.values()).every((url) => text.includes(url))
+    );
+  }, 5_000);
+  if (!finalized) {
+    throw new Error("The Markdown editor did not confirm the final image URLs.");
+  }
+}
+
+function replaceMarkdownImageTokens(
+  markdown: string,
+  images: EmbeddedImage[],
+  replacements: ReadonlyMap<string, string>
+): string {
+  let finalized = markdown;
+  for (const image of images) {
+    const url = replacements.get(image.token);
+    if (!url) {
+      throw new Error("An uploaded image URL was missing during finalization.");
+    }
+    finalized = finalized.replaceAll(
+      image.token,
+      `![${image.alt || "crosspost image"}](${url})`
+    );
+  }
+  return finalized;
+}
+
+function normalizedMarkdownDocument(value: string): string {
+  return value.replace(/\r\n?/g, "\n").trimEnd();
+}
+
+function markdownDocumentMatches(editor: HTMLElement, markdown: string): boolean {
+  return (
+    normalizedMarkdownDocument(markdownEditorVisibleText(editor)) ===
+    normalizedMarkdownDocument(markdown)
+  );
+}
+
+async function setContenteditableMarkdown(
+  editor: HTMLElement,
+  markdown: string,
+  runtime?: DomAdapterRuntime
+): Promise<void> {
+  const isCsdnEditor = editor.matches(
+    "pre.editor__inner.markdown-highlighting[contenteditable='true']"
+  );
+  if (isCsdnEditor && runtime?.setCsdnMarkdown) {
+    const appliedMarkdown = await runtime.setCsdnMarkdown(markdown);
+    if (
+      appliedMarkdown !== undefined &&
+      normalizedMarkdownDocument(appliedMarkdown) ===
+        normalizedMarkdownDocument(markdown)
+    ) {
+      return;
+    }
+    throw new Error("The CSDN editor did not preserve the source Markdown.");
+  }
+  if (hasEditorContent(editor)) {
+    await clearEditor(() => editor);
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  }
+  editor.focus();
+  selectEditorContents(editor);
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+
+  const execCommand = Reflect.get(document, "execCommand") as
+    | ((commandId: string, showUi: boolean, value?: string | null) => boolean)
+    | undefined;
+  if (
+    isCsdnEditor &&
+    typeof execCommand === "function"
+  ) {
+    const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+    let inserted = execCommand.call(
+      document,
+      "insertText",
+      false,
+      lines[0] ?? ""
+    );
+    for (const line of lines.slice(1)) {
+      inserted =
+        execCommand.call(document, "insertLineBreak", false, null) && inserted;
+      if (line) {
+        inserted =
+          execCommand.call(document, "insertText", false, line) && inserted;
+      }
+    }
+    if (inserted) {
+      return;
+    }
+  }
+
+  if (typeof DataTransfer !== "undefined" && typeof ClipboardEvent !== "undefined") {
+    const transfer = new DataTransfer();
+    transfer.setData("text/plain", markdown);
+    const handled = !editor.dispatchEvent(
+      new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: transfer
+      })
+    );
+    if (handled) {
+      return;
+    }
+  }
+
+  editor.focus();
+  selectEditorContents(editor);
+  let replaced = false;
+  try {
+    replaced =
+      typeof execCommand === "function" &&
+      execCommand.call(
+        document,
+        "insertHTML",
+        false,
+        markdown
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll("\n", "<br>")
+      );
+  } catch {
+    replaced = false;
+  }
+  if (!replaced) {
+    editor.textContent = markdown;
+    dispatchEditorInput(editor, "insertFromPaste");
+  }
+}
+
+async function uploadContenteditableMarkdownImagesWithDialog(
+  resolveEditor: () => HTMLElement | undefined,
+  images: EmbeddedImage[],
+  markdown: string,
+  definition: MarkdownImageDialogDefinition,
+  runtime?: DomAdapterRuntime
+): Promise<void> {
+  const replacements = new Map<string, string>();
+  for (const image of images) {
+    const editor = resolveEditor();
+    if (!editor || isTextArea(editor)) {
+      throw new Error("The Markdown editor was replaced during an image upload.");
+    }
+    const previousUrls = httpUrlCounts(markdownEditorVisibleText(editor));
+    editor.focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+
+    let uploadedUrl: string | undefined;
+    const uploaded = await uploadThroughMarkdownImageDialog(
+      definition,
+      await browserCompatibleUploadFile(image.file),
+      () => {
+        const current = resolveEditor();
+        if (!current || isTextArea(current)) {
+          return false;
+        }
+        uploadedUrl = additionalHttpUrl(
+          markdownEditorVisibleText(current),
+          previousUrls
+        );
+        return uploadedUrl !== undefined;
+      }
+    );
+    if (!uploaded || !uploadedUrl) {
+      throw new Error("The platform did not confirm its image dialog upload.");
+    }
+    replacements.set(image.token, uploadedUrl);
+  }
+
+  const editor = resolveEditor();
+  if (!editor || isTextArea(editor)) {
+    throw new Error("The Markdown editor disappeared before finalizing images.");
+  }
+  const finalized = replaceMarkdownImageTokens(markdown, images, replacements);
+  await setContenteditableMarkdown(editor, finalized, runtime);
+  const confirmed = await waitFor(() => {
+    const current = resolveEditor();
+    if (!current || isTextArea(current)) {
+      return false;
+    }
+    const text = markdownEditorVisibleText(current);
+    return (
+      markdownDocumentMatches(current, finalized) &&
+      !text.includes("CROSSPOST_IMAGE_") &&
+      Array.from(replacements.values()).every((url) => text.includes(url))
+    );
+  }, 5_000);
+  if (!confirmed) {
+    throw new Error("The Markdown editor did not confirm the final image URLs.");
+  }
+}
+
+async function uploadMarkdownImageAtTokenWithDialog(
+  resolveEditor: () => HTMLElement | undefined,
+  image: EmbeddedImage,
+  definition: MarkdownImageDialogDefinition
+): Promise<void> {
+  const tokenAppeared = await waitFor(
+    () =>
+      markdownEditorVisibleText(resolveEditor() ?? document.body).includes(
+        image.token
+      ),
+    5_000
+  );
+  const editor = resolveEditor();
+  if (!tokenAppeared || !editor || !selectMarkdownToken(editor, image.token)) {
+    throw new Error("An image insertion point was lost while filling the Markdown editor.");
+  }
+  const previousUrls = extractHttpUrls(markdownEditorVisibleText(editor));
+  let uploadedUrl: string | undefined;
+  const uploaded = await uploadThroughMarkdownImageDialog(
+    definition,
+    await browserCompatibleUploadFile(image.file),
+    () => {
+      const current = resolveEditor();
+      if (!current) {
+        return false;
+      }
+      uploadedUrl = Array.from(
+        extractHttpUrls(markdownEditorVisibleText(current))
+      ).find((url) => !previousUrls.has(url));
+      return uploadedUrl !== undefined;
+    }
+  );
+  if (!uploaded || !uploadedUrl) {
+    throw new Error("The platform did not confirm its image dialog upload.");
+  }
+
+  const current = resolveEditor();
+  if (!current) {
+    throw new Error("The Markdown editor disappeared after the image upload.");
+  }
+  if (markdownEditorVisibleText(current).includes(image.token)) {
+    if (!selectMarkdownToken(current, image.token)) {
+      throw new Error("The uploaded image could not replace its Markdown marker.");
+    }
+    const alt = image.alt || "crosspost image";
+    const selection = window.getSelection();
+    if (selection?.rangeCount) {
+      const range = selection.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document.createTextNode(`![${alt}](${uploadedUrl})`));
+      dispatchEditorInput(current, "insertFromPaste");
+    }
+  }
+  const finalized = await waitFor(() => {
+    const liveEditor = resolveEditor();
+    if (!liveEditor) {
+      return false;
+    }
+    const text = markdownEditorVisibleText(liveEditor);
+    return !text.includes(image.token) && text.includes(uploadedUrl!);
+  }, 5_000);
+  if (!finalized) {
+    throw new Error("The uploaded image did not replace its Markdown marker.");
+  }
+}
+
 async function uploadTextareaMarkdownImages(
   resolveEditor: () => HTMLElement | undefined,
   images: EmbeddedImage[],
@@ -782,8 +1471,9 @@ async function uploadTextareaMarkdownImages(
     const previousUrls = extractHttpUrls(markdownEditorText(editor));
     editor.focus();
     editor.setSelectionRange(editor.value.length, editor.value.length);
+    const uploadFile = await browserCompatibleUploadFile(image.file);
     const transfer = new DataTransfer();
-    transfer.items.add(image.file);
+    transfer.items.add(uploadFile);
     const handled = !editor.dispatchEvent(
       new ClipboardEvent("paste", {
         bubbles: true,
@@ -878,8 +1568,9 @@ async function pasteMarkdownImageAtToken(
   }
 
   const beforePaste = editableText(editor);
+  const uploadFile = await browserCompatibleUploadFile(image.file);
   const transfer = new DataTransfer();
-  transfer.items.add(image.file);
+  transfer.items.add(uploadFile);
   const handled = !editor.dispatchEvent(
     new ClipboardEvent("paste", {
       bubbles: true,
@@ -915,44 +1606,44 @@ function hasEditorContent(editor: HTMLElement): boolean {
 async function clearEditor(
   resolveEditor: () => HTMLElement | undefined
 ): Promise<HTMLElement> {
-  const editor = resolveEditor();
-  if (!editor) {
-    throw new Error("The visible editor disappeared before it could be updated.");
-  }
-  if (!hasEditorContent(editor)) {
-    return editor;
-  }
-  editor.focus();
-  selectEditorContents(editor);
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0 || !selectionIsInside(editor)) {
-    throw new Error(
-      "The existing editor content could not be selected safely; no replacement was inserted."
-    );
-  }
-  selection.getRangeAt(0).deleteContents();
-  dispatchEditorInput(editor, "deleteContentBackward");
-  const cleared = await waitFor(
-    () => {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const editor = resolveEditor();
+    if (!editor) {
+      throw new Error("The visible editor disappeared before it could be updated.");
+    }
+    if (!hasEditorContent(editor)) {
+      return editor;
+    }
+    editor.focus();
+    selectEditorContents(editor);
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || !selectionIsInside(editor)) {
+      throw new Error(
+        "The existing editor content could not be selected safely; no replacement was inserted."
+      );
+    }
+    selection.getRangeAt(0).deleteContents();
+    dispatchEditorInput(editor, "deleteContentBackward");
+    const cleared = await waitFor(() => {
       const currentEditor = resolveEditor();
       return Boolean(currentEditor && !hasEditorContent(currentEditor));
-    },
-    3_000
-  );
-  const currentEditor = resolveEditor();
-  if (!cleared || !currentEditor || hasEditorContent(currentEditor)) {
-    throw new Error(
-      "The existing editor content could not be cleared safely; no replacement was inserted."
-    );
+    }, 750);
+    const currentEditor = resolveEditor();
+    if (cleared && currentEditor && !hasEditorContent(currentEditor)) {
+      return currentEditor;
+    }
   }
-  return currentEditor;
+  throw new Error(
+    "The existing editor content could not be cleared safely; no replacement was inserted."
+  );
 }
 
 async function insertIntoEditor(
   editor: HTMLElement,
   payload: ApplyDraftPayload,
   resolveEditor: () => HTMLElement | undefined,
-  definition: PlatformDomDefinition
+  definition: PlatformDomDefinition,
+  runtime?: DomAdapterRuntime
 ): Promise<void> {
   editor.focus();
   const useMarkdown =
@@ -977,14 +1668,60 @@ async function insertIntoEditor(
         definition.imageStrategy !== "rich-paste" &&
         prepared.images.length > 0
       ) {
-        await uploadTextareaMarkdownImages(
-          resolveEditor,
-          prepared.images,
-          prepared.markdown
-        );
+        if (definition.markdownImageDialog) {
+          try {
+            await uploadTextareaMarkdownImagesWithDialog(
+              resolveEditor,
+              prepared.images,
+              prepared.markdown,
+              definition.markdownImageDialog
+            );
+          } catch (error) {
+            if (!(error instanceof MarkdownImageDialogUnavailableError)) {
+              throw error;
+            }
+            await uploadTextareaMarkdownImages(
+              resolveEditor,
+              prepared.images,
+              prepared.markdown
+            );
+          }
+        } else {
+          await uploadTextareaMarkdownImages(
+            resolveEditor,
+            prepared.images,
+            prepared.markdown
+          );
+        }
         return;
       }
     } else {
+      if (
+        definition.rewriteMarkdownAfterDialogUploads &&
+        definition.markdownImageDialog
+      ) {
+        await setContenteditableMarkdown(editor, prepared.markdown, runtime);
+        const initialMarkdownApplied = await waitFor(() => {
+          const current = resolveEditor();
+          return Boolean(
+            current &&
+              markdownDocumentMatches(current, prepared.markdown)
+          );
+        }, 5_000);
+        if (!initialMarkdownApplied) {
+          throw new Error("The Markdown editor did not accept the source document.");
+        }
+        if (prepared.images.length > 0) {
+          await uploadContenteditableMarkdownImagesWithDialog(
+            resolveEditor,
+            prepared.images,
+            prepared.markdown,
+            definition.markdownImageDialog,
+            runtime
+          );
+        }
+        return;
+      }
       let currentEditor = await clearEditor(resolveEditor);
       await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       currentEditor = resolveEditor() ?? currentEditor;
@@ -1016,7 +1753,22 @@ async function insertIntoEditor(
     }
     if (definition.imageStrategy !== "rich-paste") {
       for (const image of prepared.images) {
-        await pasteMarkdownImageAtToken(resolveEditor, image);
+        if (definition.markdownImageDialog) {
+          try {
+            await uploadMarkdownImageAtTokenWithDialog(
+              resolveEditor,
+              image,
+              definition.markdownImageDialog
+            );
+          } catch (error) {
+            if (!(error instanceof MarkdownImageDialogUnavailableError)) {
+              throw error;
+            }
+            await pasteMarkdownImageAtToken(resolveEditor, image);
+          }
+        } else {
+          await pasteMarkdownImageAtToken(resolveEditor, image);
+        }
       }
     }
     return;
@@ -1031,7 +1783,12 @@ async function insertIntoEditor(
       "The article contains an invalid inline image that could not be prepared for upload."
     );
   }
-  let currentEditor = await clearEditor(resolveEditor);
+  const replaceExistingByPaste = Boolean(
+    definition.replaceExistingRichContentByPaste && hasEditorContent(editor)
+  );
+  let currentEditor = replaceExistingByPaste
+    ? editor
+    : await clearEditor(resolveEditor);
   await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
   currentEditor = resolveEditor() ?? currentEditor;
   currentEditor.focus();
@@ -1046,7 +1803,7 @@ async function insertIntoEditor(
   }, 1_000);
   if (!editorFocused) {
     throw new Error(
-      "The replacement editor did not regain focus after clearing the previous draft."
+      "The replacement editor did not regain focus before replacing the previous draft."
     );
   }
   let accepted = false;
@@ -1066,12 +1823,32 @@ async function insertIntoEditor(
     accepted &&
     (await waitFor(() => {
       const liveEditor = resolveEditor();
-      return Boolean(liveEditor && hasEditorContent(liveEditor));
+      if (!liveEditor || !hasEditorContent(liveEditor)) {
+        return false;
+      }
+      if (replaceExistingByPaste && prepared.images.length > 0) {
+        return prepared.images.every((image) =>
+          liveEditor.textContent?.includes(image.token)
+        );
+      }
+      return true;
     }, 5_000));
   currentEditor = resolveEditor() ?? currentEditor;
+  if (replaceExistingByPaste && !pasteApplied) {
+    throw new Error(
+      "The rich-text editor did not confirm replacement of the previous draft."
+    );
+  }
   if (pasteApplied || hasEditorContent(currentEditor)) {
     for (const image of prepared.images) {
-      await pasteImageAtToken(resolveEditor, image);
+      await pasteImageAtToken(
+        resolveEditor,
+        image,
+        definition.richImageDropFallback,
+        definition.nativeRichImageUpload
+          ? runtime?.uploadBilibiliImage
+          : undefined
+      );
     }
     return;
   }
@@ -1084,7 +1861,14 @@ async function insertIntoEditor(
   replaceEditorHtml(currentEditor, prepared.html);
   dispatchEditorInput(currentEditor, "insertFromPaste");
   for (const image of prepared.images) {
-    await pasteImageAtToken(resolveEditor, image);
+    await pasteImageAtToken(
+      resolveEditor,
+      image,
+      definition.richImageDropFallback,
+      definition.nativeRichImageUpload
+        ? runtime?.uploadBilibiliImage
+        : undefined
+    );
   }
 }
 
@@ -1155,7 +1939,8 @@ async function waitForSaveEvidence(
 }
 
 export async function applyDraftToVisibleEditor(
-  payload: ApplyDraftPayload
+  payload: ApplyDraftPayload,
+  runtime?: DomAdapterRuntime
 ): Promise<ApplyDraftResult> {
   if (payload.html.includes("crosspost-asset://") || payload.markdown.includes("crosspost-asset://")) {
     return {
@@ -1189,7 +1974,7 @@ export async function applyDraftToVisibleEditor(
   const initialSaveStatus = saveEvidenceSignature(definition);
   setTitleValue(title, payload.title);
   try {
-    await insertIntoEditor(editor, payload, resolveEditor, definition);
+    await insertIntoEditor(editor, payload, resolveEditor, definition, runtime);
   } catch (error) {
     return {
       draftUrl: location.href,
@@ -1204,6 +1989,12 @@ export async function applyDraftToVisibleEditor(
       saved: false,
       unknown: true
     };
+  }
+
+  if (definition.postInsertSettleMs) {
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, definition.postInsertSettleMs);
+    });
   }
 
   if (definition.saveActionText) {

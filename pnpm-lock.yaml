@@ -38,6 +38,9 @@ importers:
 
   apps/browser-extension:
     dependencies:
+      '@crosspost/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@crosspost/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol

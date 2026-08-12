@@ -22,14 +22,21 @@ import type {
   ExtensionConfiguration,
   ExtensionStatus,
   PopupRequest,
-  PopupResponse
+  PopupResponse,
+  SetCsdnMarkdownRequest,
+  SetCsdnMarkdownResponse,
+  UploadBilibiliImageRequest,
+  UploadBilibiliImageResponse
 } from "../lib/messages";
 import {
+  areEquivalentDraftUrls,
+  canonicalizeBilibiliDraftUrl,
   getDraftRedirectUrl,
   isExpectedDraftUrl,
   isStableDraftUrl,
   NEW_DRAFT_URLS,
-  PLATFORM_ORIGINS
+  PLATFORM_ORIGINS,
+  waitForStableDraftUrl
 } from "../lib/platforms";
 
 const CONFIG_KEY = "crosspost.configuration";
@@ -254,6 +261,44 @@ async function navigateTabAndWait(
   });
 }
 
+async function reloadTabAndWait(
+  tabId: number,
+  timeoutMs = 30_000
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      self.clearTimeout(timeout);
+      browser.tabs.onUpdated.removeListener(listener);
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    };
+    const timeout = self.setTimeout(() => {
+      finish(new Error("The platform draft did not finish reloading."));
+    }, timeoutMs);
+    const listener = (updatedId: number, change: { status?: string }): void => {
+      if (updatedId === tabId && change.status === "complete") {
+        finish();
+      }
+    };
+    browser.tabs.onUpdated.addListener(listener);
+    void browser.tabs.reload(tabId).catch((error: unknown) => {
+      finish(
+        error instanceof Error
+          ? error
+          : new Error("The platform draft could not be reloaded.")
+      );
+    });
+  });
+}
+
 async function openDraftTab(job: PublishJob): Promise<number> {
   const existingUrl = job.existingBinding?.draftUrl;
   const targetUrl =
@@ -266,7 +311,12 @@ async function openDraftTab(job: PublishJob): Promise<number> {
       })
     : [];
   const existingTab = existingUrl
-    ? matchingTabs.find((tab) => tab.id !== undefined && tab.url === existingUrl)
+    ? matchingTabs.find(
+        (tab) =>
+          tab.id !== undefined &&
+          tab.url !== undefined &&
+          areEquivalentDraftUrls(tab.url, existingUrl)
+      )
     : undefined;
   const activeDraftTab = existingUrl
     ? undefined
@@ -286,7 +336,10 @@ async function openDraftTab(job: PublishJob): Promise<number> {
   if (tab.id === undefined) {
     throw new Error("The platform draft tab could not be opened.");
   }
-  if (tab.url !== targetUrl && existingUrl) {
+  if (
+    existingUrl &&
+    (!tab.url || !areEquivalentDraftUrls(tab.url, targetUrl))
+  ) {
     await navigateTabAndWait(tab.id, targetUrl);
   } else {
     await browser.tabs.update(tab.id, { active: true });
@@ -353,6 +406,685 @@ async function applyToTab(
   return browser.tabs.sendMessage(tabId, message);
 }
 
+async function setCsdnMarkdownInMainWorld(
+  tabId: number | undefined,
+  request: SetCsdnMarkdownRequest
+): Promise<SetCsdnMarkdownResponse> {
+  if (tabId === undefined) {
+    return { applied: false, message: "The CSDN tab could not be identified." };
+  }
+  const tab = await browser.tabs.get(tabId);
+  if (!tab.url || !isExpectedDraftUrl("csdn", tab.url)) {
+    return { applied: false, message: "The active tab is not a CSDN draft editor." };
+  }
+  const [injection] = await browser.scripting.executeScript({
+    args: [request.markdown],
+    func: async (source: string) => {
+      const editorSelector =
+        "pre.editor__inner.markdown-highlighting[contenteditable='true']";
+      const resolveEditor = (): HTMLElement | null =>
+        document.querySelector<HTMLElement>(editorSelector);
+      const editor = resolveEditor();
+      const execCommand = Reflect.get(document, "execCommand") as
+        | ((commandId: string, showUi: boolean, value?: string | null) => boolean)
+        | undefined;
+      if (!editor || typeof execCommand !== "function") {
+        return {
+          applied: false,
+          message: "The CSDN Markdown editor is not ready."
+        };
+      }
+      const waitForEditorFrame = async (): Promise<void> => {
+        await new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => resolve());
+        });
+      };
+      const waitForEditorSettle = async (delayMs = 100): Promise<void> => {
+        await waitForEditorFrame();
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, delayMs);
+        });
+        await waitForEditorFrame();
+      };
+      const normalizeMarkdown = (value: string): string =>
+        value.replace(/\r\n?/g, "\n").trimEnd();
+      const placeCaretAtEnd = (target: HTMLElement): boolean => {
+        const currentSelection = window.getSelection();
+        if (!currentSelection) {
+          return false;
+        }
+        target.focus();
+        const currentRange = document.createRange();
+        currentRange.selectNodeContents(target);
+        currentRange.collapse(false);
+        currentSelection.removeAllRanges();
+        currentSelection.addRange(currentRange);
+        document.dispatchEvent(
+          new Event("selectionchange", { bubbles: true })
+        );
+        return true;
+      };
+      const selectAll = (target: HTMLElement): boolean => {
+        const currentSelection = window.getSelection();
+        if (!currentSelection) {
+          return false;
+        }
+        target.focus();
+        const currentRange = document.createRange();
+        currentRange.selectNodeContents(target);
+        currentSelection.removeAllRanges();
+        currentSelection.addRange(currentRange);
+        document.dispatchEvent(
+          new Event("selectionchange", { bubbles: true })
+        );
+        target.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        return true;
+      };
+      const wakeEditorModel = async (): Promise<boolean> => {
+        const target = resolveEditor();
+        if (!target || !placeCaretAtEnd(target)) {
+          return false;
+        }
+        const inserted = execCommand.call(
+          document,
+          "insertText",
+          false,
+          " "
+        );
+        await waitForEditorFrame();
+        const editorAfterInsert = resolveEditor();
+        if (!inserted || !editorAfterInsert || !placeCaretAtEnd(editorAfterInsert)) {
+          return false;
+        }
+        const deleted = execCommand.call(document, "delete", false, null);
+        await waitForEditorSettle(250);
+        return (
+          deleted &&
+          normalizeMarkdown(resolveEditor()?.textContent ?? "") ===
+            normalizeMarkdown(source)
+        );
+      };
+
+      // CSDN's editor is powered by cledit. Its source model observes mutations
+      // on this element, so a single text node preserves literal newlines while
+      // execCommand may translate them into HTML blocks whose textContent is
+      // later flattened by the editor's own highlighter.
+      editor.replaceChildren(document.createTextNode(source));
+      await waitForEditorSettle(1_200);
+      const mutationMarkdown = resolveEditor()?.textContent ?? "";
+      if (
+        normalizeMarkdown(mutationMarkdown) === normalizeMarkdown(source)
+      ) {
+        const modelAwake = await wakeEditorModel();
+        const settledMarkdown = resolveEditor()?.textContent ?? "";
+        return {
+          applied: modelAwake,
+          markdown: settledMarkdown,
+          message: modelAwake
+            ? undefined
+            : "CSDN displayed the Markdown but did not accept a native edit event."
+        };
+      }
+
+      if (
+        resolveEditor() &&
+        selectAll(resolveEditor()!) &&
+        typeof DataTransfer === "function" &&
+        typeof ClipboardEvent === "function"
+      ) {
+        await waitForEditorFrame();
+        const clipboard = new DataTransfer();
+        clipboard.setData("text/plain", source);
+        const pasteHandled = !editor.dispatchEvent(
+          new ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: clipboard
+          })
+        );
+        await waitForEditorSettle(1_200);
+        const pastedMarkdown = resolveEditor()?.textContent ?? "";
+        if (
+          pasteHandled &&
+          normalizeMarkdown(pastedMarkdown) === normalizeMarkdown(source)
+        ) {
+          return { applied: true, markdown: pastedMarkdown };
+        }
+      }
+
+      const fallbackEditor = resolveEditor();
+      if (!fallbackEditor || !selectAll(fallbackEditor)) {
+        return {
+          applied: false,
+          message: "The CSDN Markdown editor lost its selection."
+        };
+      }
+
+      const directApplied = execCommand.call(
+        document,
+        "insertText",
+        false,
+        source
+      );
+      await waitForEditorSettle(1_200);
+      const directMarkdown = resolveEditor()?.textContent ?? "";
+      if (
+        directApplied &&
+        normalizeMarkdown(directMarkdown) === normalizeMarkdown(source)
+      ) {
+        return { applied: true, markdown: directMarkdown };
+      }
+
+      const incrementalEditor = resolveEditor();
+      if (!incrementalEditor || !selectAll(incrementalEditor)) {
+        return {
+          applied: false,
+          message: "The CSDN Markdown editor lost its selection."
+        };
+      }
+
+      const lines = source.replace(/\r\n?/g, "\n").split("\n");
+      let applied = execCommand.call(
+        document,
+        "insertText",
+        false,
+        lines[0] ?? ""
+      );
+      await waitForEditorFrame();
+      for (const line of lines.slice(1)) {
+        const editorBeforeBreak = resolveEditor();
+        if (!editorBeforeBreak || !placeCaretAtEnd(editorBeforeBreak)) {
+          applied = false;
+          break;
+        }
+        applied =
+          execCommand.call(document, "insertLineBreak", false, null) && applied;
+        await waitForEditorFrame();
+        if (line) {
+          const editorBeforeText = resolveEditor();
+          if (!editorBeforeText || !placeCaretAtEnd(editorBeforeText)) {
+            applied = false;
+            break;
+          }
+          applied =
+            execCommand.call(document, "insertText", false, line) && applied;
+          await waitForEditorFrame();
+        }
+      }
+      await waitForEditorSettle(1_200);
+      const settledEditor = resolveEditor();
+      const settledMarkdown = settledEditor?.textContent ?? "";
+      const preserved =
+        normalizeMarkdown(settledMarkdown) === normalizeMarkdown(source);
+      return {
+        applied: applied && preserved,
+        markdown: settledMarkdown,
+        message:
+          applied && preserved
+            ? undefined
+            : "CSDN did not preserve the Markdown after its editor settled."
+      };
+    },
+    target: { tabId },
+    world: "MAIN"
+  });
+  return (
+    (injection?.result as SetCsdnMarkdownResponse | undefined) ?? {
+      applied: false,
+      message: "CSDN did not return an editor result."
+    }
+  );
+}
+
+async function uploadBilibiliImageInMainWorld(
+  tabId: number | undefined,
+  request: UploadBilibiliImageRequest
+): Promise<UploadBilibiliImageResponse> {
+  if (tabId === undefined) {
+    return { uploaded: false, message: "The Bilibili tab could not be identified." };
+  }
+  const tab = await browser.tabs.get(tabId);
+  if (!tab.url || !isExpectedDraftUrl("bilibili", tab.url)) {
+    return { uploaded: false, message: "The active tab is not a Bilibili draft editor." };
+  }
+  if (!request.dataUrl.startsWith("data:image/")) {
+    return { uploaded: false, message: "Bilibili received an invalid image payload." };
+  }
+
+  const [injection] = await browser.scripting.executeScript({
+    args: [
+      request.dataUrl,
+      request.fileName,
+      request.mimeType,
+      request.token
+    ],
+    func: async (
+      dataUrl: string,
+      fileName: string,
+      mimeType: string,
+      token: string
+    ) => {
+      const pauseInPage = async (milliseconds: number): Promise<void> => {
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, milliseconds);
+        });
+      };
+      const editor = document.querySelector<HTMLElement>(
+        ".tiptap.ProseMirror.eva3-editor[contenteditable='true']"
+      );
+      const toolbar = document.querySelector<HTMLElement>(
+        "eva3-toolbar-image"
+      );
+      if (!editor || !toolbar?.shadowRoot) {
+        return {
+          uploaded: false,
+          message: "Bilibili's visible image toolbar is not ready."
+        };
+      }
+
+      const findTokenRange = (): Range | undefined => {
+        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+        let node = walker.nextNode();
+        while (node) {
+          const text = node.textContent ?? "";
+          const index = text.indexOf(token);
+          if (index >= 0) {
+            const range = document.createRange();
+            range.setStart(node, index);
+            range.setEnd(node, index + token.length);
+            return range;
+          }
+          node = walker.nextNode();
+        }
+        return undefined;
+      };
+      const tokenRange = findTokenRange();
+      const selection = window.getSelection();
+      if (!tokenRange || !selection) {
+        return {
+          uploaded: false,
+          message: "Bilibili lost the image insertion point."
+        };
+      }
+      editor.focus();
+      selection.removeAllRanges();
+      selection.addRange(tokenRange);
+      document.dispatchEvent(
+        new Event("selectionchange", { bubbles: true })
+      );
+
+      const existingUrls = new Map<string, number>();
+      for (const image of editor.querySelectorAll<HTMLImageElement>("img")) {
+        const source = image.currentSrc || image.src;
+        if (source) {
+          existingUrls.set(source, (existingUrls.get(source) ?? 0) + 1);
+        }
+      }
+      const dropdown = toolbar.shadowRoot.querySelector<HTMLElement>(
+        "eva3-dropdown"
+      );
+      const popover = dropdown?.shadowRoot?.querySelector<HTMLElement>(
+        "eva3-popover"
+      );
+      const trigger = popover?.querySelector<HTMLElement>(
+        ".dropdown__button"
+      );
+      const uploadItem = Array.from(
+        toolbar.shadowRoot.querySelectorAll<HTMLElement>(".item")
+      ).find((candidate) => candidate.textContent?.trim() === "上传图片");
+      if (!uploadItem) {
+        return {
+          uploaded: false,
+          message: "Bilibili's upload-image menu is unavailable."
+        };
+      }
+
+      let capturedInput: HTMLInputElement | undefined;
+      const captureInput = (input: HTMLInputElement): void => {
+        capturedInput = input;
+      };
+      const originalInputClick = Reflect.get(
+        HTMLInputElement.prototype,
+        "click"
+      );
+      HTMLInputElement.prototype.click = function click(
+        this: HTMLInputElement
+      ): void {
+        if (this.type === "file") {
+          captureInput(this);
+          return;
+        }
+        Reflect.apply(originalInputClick, this, []);
+      };
+      try {
+        const uploadItemIsVisible = (): boolean => {
+          const bounds = uploadItem.getBoundingClientRect();
+          return bounds.width > 0 && bounds.height > 0;
+        };
+        const waitForCapturedInput = async (
+          timeoutMs: number
+        ): Promise<boolean> => {
+          const deadline = Date.now() + timeoutMs;
+          while (!capturedInput && Date.now() < deadline) {
+            await pauseInPage(100);
+          }
+          return capturedInput !== undefined;
+        };
+
+        // The menu item remains connected while its popover is closed, and its
+        // click handler still creates Bilibili's native file input. Invoking it
+        // directly avoids relying on a synthetic toolbar click, which the
+        // current editor ignores because it is not a trusted pointer event.
+        uploadItem.click();
+        if (!(await waitForCapturedInput(1_000))) {
+          if (!uploadItemIsVisible()) {
+            trigger?.click();
+          }
+          const menuDeadline = Date.now() + 2_000;
+          while (!uploadItemIsVisible() && Date.now() < menuDeadline) {
+            await pauseInPage(100);
+          }
+          uploadItem.click();
+          await waitForCapturedInput(3_000);
+        }
+      } finally {
+        HTMLInputElement.prototype.click = originalInputClick;
+      }
+      if (!capturedInput) {
+        return {
+          uploaded: false,
+          message: "Bilibili did not expose its native image file input."
+        };
+      }
+
+      const separator = dataUrl.indexOf(",");
+      if (separator < 0) {
+        return {
+          uploaded: false,
+          message: "Bilibili received an invalid native image payload."
+        };
+      }
+      const binary = atob(dataUrl.slice(separator + 1));
+      const imageBytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        imageBytes[index] = binary.charCodeAt(index);
+      }
+      const imageFile = new File([imageBytes], fileName, {
+        type: mimeType || "image/png"
+      });
+      const transfer = new DataTransfer();
+      transfer.items.add(imageFile);
+      try {
+        capturedInput.files = transfer.files;
+      } catch {
+        Object.defineProperty(capturedInput, "files", {
+          configurable: true,
+          value: transfer.files
+        });
+      }
+      capturedInput.dispatchEvent(new Event("input", { bubbles: true }));
+      capturedInput.dispatchEvent(new Event("change", { bubbles: true }));
+
+      const deadline = Date.now() + 45_000;
+      while (Date.now() < deadline) {
+        const currentCounts = new Map<string, number>();
+        for (const image of editor.querySelectorAll<HTMLImageElement>("img")) {
+          const source = image.currentSrc || image.src;
+          if (source) {
+            currentCounts.set(source, (currentCounts.get(source) ?? 0) + 1);
+          }
+        }
+        const uploadedUrl = Array.from(currentCounts).find(
+          ([url, count]) =>
+            /^(?:https?:\/\/|data:image\/|blob:)/i.test(url) &&
+            count > (existingUrls.get(url) ?? 0)
+        )?.[0];
+        if (uploadedUrl) {
+          const menuCloseDeadline = Date.now() + 2_000;
+          while (
+            uploadItem.getBoundingClientRect().height > 0 &&
+            Date.now() < menuCloseDeadline
+          ) {
+            await pauseInPage(100);
+          }
+          return { uploaded: true, url: uploadedUrl };
+        }
+        await pauseInPage(200);
+      }
+      return {
+        uploaded: false,
+        message: "Bilibili did not confirm the native image upload."
+      };
+    },
+    target: { tabId },
+    world: "MAIN"
+  });
+  return (
+    (injection?.result as UploadBilibiliImageResponse | undefined) ?? {
+      uploaded: false,
+      message: "Bilibili did not return an image upload result."
+    }
+  );
+}
+
+async function pause(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    self.setTimeout(resolve, milliseconds);
+  });
+}
+
+async function resolveBilibiliDraftUrl(
+  tabId: number,
+  expectedTitle: string
+): Promise<string | undefined> {
+  await navigateTabAndWait(tabId, "https://member.bilibili.com/york/read-draft");
+  let editClicked = false;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const [injection] = await browser.scripting.executeScript({
+      args: [expectedTitle],
+      func: (title: string): boolean => {
+        const cards = Array.from(
+          document.querySelectorAll<HTMLElement>(".draft-card")
+        );
+        const card = cards.find(
+          (candidate) =>
+            candidate
+              .querySelector<HTMLElement>(".draft-card_title")
+              ?.textContent?.trim() === title.trim()
+        );
+        const edit = card?.querySelector<HTMLElement>(
+          ".draft-card_action-edit"
+        );
+        if (!edit || edit.getClientRects().length === 0) {
+          return false;
+        }
+        edit.click();
+        return true;
+      },
+      target: { tabId }
+    });
+    if (injection?.result === true) {
+      editClicked = true;
+      break;
+    }
+    await pause(250);
+  }
+  if (!editClicked) {
+    return undefined;
+  }
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const currentUrl = (await browser.tabs.get(tabId)).url;
+    const canonical = currentUrl
+      ? canonicalizeBilibiliDraftUrl(currentUrl)
+      : undefined;
+    if (canonical) {
+      await navigateTabAndWait(tabId, canonical);
+      return canonical;
+    }
+    await pause(250);
+  }
+  return undefined;
+}
+
+async function verifyBilibiliDraftAssets(
+  tabId: number,
+  expectedImageCount: number
+): Promise<boolean> {
+  await reloadTabAndWait(tabId);
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const [injection] = await browser.scripting.executeScript({
+      args: [expectedImageCount],
+      func: (expected: number): boolean | undefined => {
+        const editor = document.querySelector<HTMLElement>(
+          ".tiptap.ProseMirror.eva3-editor[contenteditable='true']"
+        );
+        if (!editor) {
+          return undefined;
+        }
+        const sources = Array.from(
+          editor.querySelectorAll<HTMLImageElement>("img")
+        ).map((image) => image.currentSrc || image.src);
+        const placeholders = (editor.textContent ?? "").match(
+          /CROSSPOST_IMAGE_/g
+        );
+        const transientCount = sources.filter((source) =>
+          /^(?:data:|blob:)/i.test(source)
+        ).length;
+        const resolvedCount = sources.filter((source) =>
+          /^https?:\/\//i.test(source)
+        ).length;
+        return (
+          (placeholders?.length ?? 0) === 0 &&
+          transientCount === 0 &&
+          resolvedCount >= expected
+        );
+      },
+      target: { tabId }
+    });
+    if (injection?.result === true) {
+      return true;
+    }
+    await pause(250);
+  }
+  return false;
+}
+
+async function resolveOsChinaDraftUrl(
+  tabId: number,
+  expectedTitle: string,
+  editorUrl: string
+): Promise<string | undefined> {
+  const profile = new URL(editorUrl).pathname.match(/^\/u\/([^/]+)\/blog\//);
+  if (!profile?.[1]) {
+    return undefined;
+  }
+  const knownTabIds = new Set(
+    (await browser.tabs.query({ url: PLATFORM_ORIGINS.oschina })).flatMap(
+      (tab) => (tab.id === undefined ? [] : [tab.id])
+    )
+  );
+  await navigateTabAndWait(
+    tabId,
+    `https://my.oschina.net/u/${profile[1]}/`
+  );
+
+  let draftBoxOpened = false;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const [injection] = await browser.scripting.executeScript({
+      func: (): boolean => {
+        const draftBox = Array.from(
+          document.querySelectorAll<HTMLElement>("[role='menuitem']")
+        ).find(
+          (candidate) =>
+            candidate.textContent?.trim() === "草稿箱" &&
+            candidate.getClientRects().length > 0
+        );
+        if (!draftBox) {
+          return false;
+        }
+        draftBox.click();
+        return true;
+      },
+      target: { tabId }
+    });
+    if (injection?.result === true) {
+      draftBoxOpened = true;
+      break;
+    }
+    await pause(250);
+  }
+  if (!draftBoxOpened) {
+    return undefined;
+  }
+
+  let editClicked = false;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const [injection] = await browser.scripting.executeScript({
+      args: [expectedTitle],
+      func: (title: string): boolean => {
+        const cards = Array.from(
+          document.querySelectorAll<HTMLElement>(".list-content-item")
+        );
+        const card = cards.find(
+          (candidate) =>
+            candidate
+              .querySelector<HTMLElement>(".list-content-item-info-name")
+              ?.textContent?.trim() === title.trim()
+        );
+        const edit = Array.from(
+          card?.querySelectorAll<HTMLButtonElement>("button") ?? []
+        ).find(
+          (candidate) =>
+            candidate.textContent?.replace(/\s+/g, "").trim() === "编辑"
+        );
+        if (!edit || edit.getClientRects().length === 0) {
+          return false;
+        }
+        edit.click();
+        return true;
+      },
+      target: { tabId }
+    });
+    if (injection?.result === true) {
+      editClicked = true;
+      break;
+    }
+    await pause(250);
+  }
+  if (!editClicked) {
+    return undefined;
+  }
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const candidateTabs = await browser.tabs.query({
+      url: PLATFORM_ORIGINS.oschina
+    });
+    const stableTab = candidateTabs.find(
+      (tab) =>
+        tab.id !== undefined &&
+        !knownTabIds.has(tab.id) &&
+        tab.url !== undefined &&
+        isStableDraftUrl("oschina", tab.url)
+    );
+    const currentUrl = (await browser.tabs.get(tabId)).url;
+    const stableDraftUrl =
+      stableTab?.url ??
+      (currentUrl && isStableDraftUrl("oschina", currentUrl)
+        ? currentUrl
+        : undefined);
+    if (stableDraftUrl) {
+      if (stableTab?.id !== undefined && stableTab.id !== tabId) {
+        await navigateTabAndWait(tabId, stableDraftUrl);
+        await browser.tabs.remove(stableTab.id);
+      }
+      return stableDraftUrl;
+    }
+    await pause(250);
+  }
+  return undefined;
+}
+
 function enqueueJob(job: PublishJob): void {
   const claim = jobs.claim(job.id);
   if (claim.status === "completed") {
@@ -408,7 +1140,26 @@ async function processJob(job: PublishJob): Promise<void> {
       );
       return;
     }
-    if (!isStableDraftUrl(job.target, result.draftUrl)) {
+    const resolvedPlatformDraftUrl =
+      job.target === "bilibili" && !isStableDraftUrl(job.target, result.draftUrl)
+        ? await resolveBilibiliDraftUrl(tabId, job.artifact.metadata.title)
+        : job.target === "oschina" &&
+            !isStableDraftUrl(job.target, result.draftUrl)
+          ? await resolveOsChinaDraftUrl(
+              tabId,
+              job.artifact.metadata.title,
+              result.draftUrl
+            )
+          : undefined;
+    const stableDraftUrl =
+      resolvedPlatformDraftUrl ??
+      (await waitForStableDraftUrl(
+        job.target,
+        result.draftUrl,
+        async () => (await browser.tabs.get(tabId)).url,
+        () => pause(250)
+      ));
+    if (!stableDraftUrl) {
       sendResult(
         job,
         "unknown",
@@ -418,8 +1169,30 @@ async function processJob(job: PublishJob): Promise<void> {
       );
       return;
     }
+    if (job.target === "bilibili") {
+      sendProgress(
+        job.id,
+        "injecting",
+        "Reloading the saved Bilibili draft to verify its uploaded images."
+      );
+      const expectedImageCount = (content.html.match(/<img\b/gi) ?? []).length;
+      const verified = await verifyBilibiliDraftAssets(
+        tabId,
+        expectedImageCount
+      );
+      if (!verified) {
+        sendResult(
+          job,
+          "unknown",
+          "Bilibili reported a save, but the reloaded draft did not preserve every uploaded image.",
+          undefined,
+          "editor-update-unconfirmed"
+        );
+        return;
+      }
+    }
     const binding: DraftBinding = {
-      draftUrl: result.draftUrl,
+      draftUrl: stableDraftUrl,
       platform: job.target,
       sourceHash: job.artifact.contentHash,
       updatedAt: new Date().toISOString()
@@ -492,11 +1265,27 @@ async function handlePopupRequest(request: PopupRequest): Promise<PopupResponse>
 export default defineBackground(() => {
   void browser.storage.local.setAccessLevel?.({ accessLevel: "TRUSTED_CONTEXTS" });
   browser.runtime.onMessage.addListener(
-    (request: PopupRequest, _sender, sendResponse): true => {
-      void handlePopupRequest(request).then(sendResponse, (error: unknown) => {
+    (
+      request:
+        | PopupRequest
+        | SetCsdnMarkdownRequest
+        | UploadBilibiliImageRequest,
+      sender,
+      sendResponse
+    ): true => {
+      const response =
+        request.type === "crosspost:set-csdn-markdown"
+          ? setCsdnMarkdownInMainWorld(sender.tab?.id, request)
+          : request.type === "crosspost:upload-bilibili-image"
+            ? uploadBilibiliImageInMainWorld(sender.tab?.id, request)
+          : handlePopupRequest(request);
+      void response.then(sendResponse, (error: unknown) => {
         sendResponse({
           error: error instanceof Error ? error.message : "Extension request failed."
-        } satisfies PopupResponse);
+        } satisfies
+          | PopupResponse
+          | SetCsdnMarkdownResponse
+          | UploadBilibiliImageResponse);
       });
       return true;
     }

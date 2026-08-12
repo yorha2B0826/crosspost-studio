@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   getWeChatCopyBlockingDiagnostics,
   htmlToPlainText,
+  writeHtmlSourceToClipboard,
   writeRichHtmlToClipboard
 } from "./clipboard.js";
 
@@ -35,16 +36,17 @@ describe("WeChat rich clipboard", () => {
     const write = vi.fn().mockResolvedValue(undefined);
 
     await writeRichHtmlToClipboard(
-      "<section><h1>标题</h1><p>正文 <strong>加粗</strong></p></section>",
+      '<section><h1>标题</h1><p>正文 <strong>加粗</strong> <svg data-crosspost-formula="inline" aria-label="LaTeX: E=mc^2"><path fill="currentColor"></path></svg></p></section>',
       { write },
       TestClipboardItem as unknown as typeof ClipboardItem
     );
 
     expect(write).toHaveBeenCalledOnce();
     const item = write.mock.calls[0]?.[0][0] as unknown as TestClipboardItem;
-    expect(await readBlobText(item.items["text/html"]!)).toContain(
-      "<strong>加粗</strong>"
-    );
+    const copiedHtml = await readBlobText(item.items["text/html"]!);
+    expect(copiedHtml).toContain("<strong>加粗</strong>");
+    expect(copiedHtml).toContain('data-crosspost-formula="inline"');
+    expect(copiedHtml).toContain('fill="currentColor"');
     expect(await readBlobText(item.items["text/plain"]!)).toBe("标题正文 加粗");
   });
 
@@ -54,11 +56,26 @@ describe("WeChat rich clipboard", () => {
     );
   });
 
+  it("writes the exact HTML source expected by source-editor helpers", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const html =
+      '<section><p>正文 <svg data-crosspost-formula="inline"><path fill="currentColor"></path></svg></p></section>';
+
+    await writeHtmlSourceToClipboard(html, { writeText });
+
+    expect(writeText).toHaveBeenCalledWith(html);
+  });
+
   it("allows manual copy when only WeChat API requirements fail", () => {
     const diagnostics: Diagnostic[] = [
       {
         code: "wechat-cover-required",
         message: "cover",
+        severity: "error"
+      },
+      {
+        code: "wechat-author-too-long",
+        message: "author",
         severity: "error"
       },
       {
@@ -74,7 +91,7 @@ describe("WeChat rich clipboard", () => {
     ];
 
     expect(getWeChatCopyBlockingDiagnostics(diagnostics)).toEqual([
-      diagnostics[2]
+      diagnostics[3]
     ]);
   });
 });

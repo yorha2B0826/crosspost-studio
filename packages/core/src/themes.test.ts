@@ -57,6 +57,9 @@ describe("theme system", () => {
   it("academic uses serif fonts", () => {
     const css = getThemeCss("academic");
     expect(css).toContain("serif");
+    expect(css).toContain("#17364a");
+    expect(css).toContain("crosspost-part-label");
+    expect(css).toContain("text-indent: 2em");
   });
 
   it("tech uses mono-color blue accent", () => {
@@ -79,4 +82,51 @@ describe("theme system", () => {
     const css = getThemeCss("vintage");
     expect(css).toContain("#fdf6e3");
   });
+
+  it.each(allThemes)("theme %s covers the full element set", (theme: ThemeId) => {
+    const css = getThemeCss(theme);
+    for (const selector of [
+      "#crosspost-root h1",
+      "#crosspost-root h2",
+      "#crosspost-root h3",
+      "#crosspost-root p[data-crosspost-formula-block",
+      "#crosspost-root ul",
+      "#crosspost-root ol",
+      "#crosspost-root li",
+      "#crosspost-root blockquote",
+      "#crosspost-root a",
+      "#crosspost-root code",
+      "#crosspost-root pre",
+      "#crosspost-root th",
+      "#crosspost-root td",
+      "#crosspost-root hr"
+    ]) {
+      expect(css).toContain(selector);
+    }
+  });
+
+  it.each(allThemes)(
+    "theme %s includes the academic-style heading hierarchy styles",
+    (theme: ThemeId) => {
+      const css = getThemeCss(theme);
+      expect(css).toContain("crosspost-part-label");
+      expect(css).toContain("crosspost-part-title");
+      expect(css).toContain("crosspost-section-number");
+      expect(css).toContain("crosspost-subsection-marker");
+    }
+  );
+
+  it.each(allThemes)(
+    "theme %s avoids pseudo-elements, pseudo-classes and gradients",
+    (theme: ThemeId) => {
+      const css = getThemeCss(theme);
+      // WeChat strips these from published articles: pseudo-element and
+      // pseudo-class rules cannot be inlined by juice, and gradient
+      // backgrounds have poor WeChat compatibility.
+      expect(css).not.toMatch(/::(before|after|marker|first-letter)/);
+      expect(css).not.toMatch(/:(hover|active|focus|visited|first-letter)/);
+      expect(css).not.toMatch(/linear-gradient/);
+      expect(css).not.toMatch(/@media|@keyframes|position\s*:/);
+    }
+  );
 });

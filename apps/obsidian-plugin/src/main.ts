@@ -34,6 +34,7 @@ import type {
 } from "./bridge-server.js";
 import {
   getWeChatCopyBlockingDiagnostics,
+  writeHtmlSourceToClipboard,
   writeRichHtmlToClipboard
 } from "./clipboard.js";
 import {
@@ -88,6 +89,25 @@ export interface PublishOutcome {
   state: JobState;
 }
 
+export interface WeChatDraftRoundTripResult {
+  academicThemePreserved: boolean;
+  currentColorPreserved: boolean;
+  expectedFormulaCount: number;
+  mediaId: string;
+  persistedFormulaCount: number;
+  svgPreserved: boolean;
+  title: string;
+}
+
+function hasAcademicThemeMarkup(html: string): boolean {
+  return (
+    html.includes("PART 01") &&
+    /color:\s*#17364a/i.test(html) &&
+    /text-indent:\s*2em/i.test(html) &&
+    /border-left:\s*4px\s+solid\s+#315b71/i.test(html)
+  );
+}
+
 export type StoredPublicationStates = Partial<
   Record<
     PlatformId,
@@ -112,9 +132,10 @@ function renderObsidianMermaidSvg(source: string) {
 
 function renderBundledMathSvg(
   latex: string,
-  display: boolean
+  display: boolean,
+  color: "fixed" | "inherit" = "fixed"
 ): Promise<string> {
-  return Promise.resolve(renderMathSvg(latex, display));
+  return Promise.resolve(renderMathSvg(latex, display, color));
 }
 
 function parseSourceFrontmatter(source: string): unknown {
@@ -191,6 +212,84 @@ export default class CrosspostStudioPlugin extends Plugin {
       id: "copy-active-note-for-wechat",
       name: "Copy active note layout for publishing"
     });
+    this.addCommand({
+      checkCallback: (checking) => {
+        const active = this.app.workspace.getActiveFile();
+        if (!active) {
+          return false;
+        }
+        if (!checking) {
+          void this.updateAndVerifyExistingWeChatDraft(
+            active,
+            this.settings.theme
+          )
+            .then((result) => {
+              const themeStatus = result.academicThemePreserved
+                ? "参考学术主题的标题、颜色、段首缩进及左边框均已保留。"
+                : "微信回读未完整保留参考学术主题的关键样式。";
+              const formulaStatus =
+                result.expectedFormulaCount === 0
+                  ? "源稿中没有公式。"
+                  : result.svgPreserved && result.currentColorPreserved
+                    ? `微信回读保留了 ${result.persistedFormulaCount}/${result.expectedFormulaCount} 个公式及 currentColor。`
+                    : `草稿已更新，但微信回读未完整保留公式 SVG。`;
+              new Notice(
+                `已更新既有公众号草稿。${themeStatus}${formulaStatus}`,
+                10_000
+              );
+            })
+            .catch((error: unknown) => {
+              new Notice(
+                error instanceof Error
+                  ? error.message
+                  : "既有公众号草稿测试失败。",
+                10_000
+              );
+            });
+        }
+        return true;
+      },
+      id: "update-verify-existing-wechat-draft",
+      name: "Update and verify existing wechat draft by title"
+    });
+
+    this.addCommand({
+      checkCallback: (checking) => {
+        const active = this.app.workspace.getActiveFile();
+        if (!active) {
+          return false;
+        }
+        if (!checking) {
+          void this.createAndVerifyNewWeChatDraft(active, this.settings.theme)
+            .then((result) => {
+              const themeStatus = result.academicThemePreserved
+                ? "参考学术主题的标题、颜色、段首缩进及左边框均已保留。"
+                : "微信回读未完整保留参考学术主题的关键样式。";
+              const formulaStatus =
+                result.expectedFormulaCount === 0
+                  ? "源稿中没有公式。"
+                  : result.svgPreserved && result.currentColorPreserved
+                    ? `微信回读保留了 ${result.persistedFormulaCount}/${result.expectedFormulaCount} 个公式及 currentColor。`
+                    : "草稿已创建，但微信回读未完整保留公式 SVG。";
+              new Notice(
+                `已新建公众号草稿。${themeStatus}${formulaStatus}`,
+                10_000
+              );
+            })
+            .catch((error: unknown) => {
+              new Notice(
+                error instanceof Error
+                  ? error.message
+                  : "新建公众号草稿测试失败。",
+                10_000
+              );
+            });
+        }
+        return true;
+      },
+      id: "create-verify-new-wechat-draft",
+      name: "Create and verify new wechat draft"
+    });
 
     this.app.workspace.onLayoutReady(() => {
       void this.startBridge();
@@ -252,6 +351,195 @@ export default class CrosspostStudioPlugin extends Plugin {
       throw new Error(blocking.map((diagnostic) => diagnostic.message).join("\n"));
     }
     await writeRichHtmlToClipboard(prepared.previewHtml);
+  }
+
+  async copyPreparedWeChatHtmlSource(prepared: PreparedPlatform): Promise<void> {
+    const blocking = getWeChatCopyBlockingDiagnostics(
+      prepared.publication.artifact.diagnostics
+    );
+    if (blocking.length > 0) {
+      throw new Error(blocking.map((diagnostic) => diagnostic.message).join("\n"));
+    }
+    await writeHtmlSourceToClipboard(prepared.previewHtml);
+  }
+
+  async updateAndVerifyExistingWeChatDraft(
+    file: TFile,
+    theme: ThemeId
+  ): Promise<WeChatDraftRoundTripResult> {
+    const appSecret = this.app.secretStorage.getSecret(
+      this.settings.wechatAppSecretId
+    );
+    if (!this.settings.wechatAppId || !appSecret) {
+      throw new Error("请先配置微信公众号 AppID 和 AppSecret。");
+    }
+    const snapshot = await this.createSnapshot(file);
+    const prepared = await this.renderSnapshot(snapshot, "wechat", theme);
+    const blockingBeforeLookup = prepared.publication.artifact.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.severity === "error" &&
+        diagnostic.code !== "wechat-cover-required"
+    );
+    if (blockingBeforeLookup.length > 0) {
+      throw new Error(
+        blockingBeforeLookup.map((diagnostic) => diagnostic.message).join("\n")
+      );
+    }
+    const title = prepared.publication.artifact.metadata.title;
+    const listed = await this.weChatClient.listDrafts(
+      this.settings.wechatAppId,
+      appSecret
+    );
+    const matches = listed.drafts.filter((draft) => draft.title === title);
+    if (matches.length === 0) {
+      const visibleTitles = listed.drafts
+        .slice(0, 8)
+        .map((draft) => `“${draft.title}”`)
+        .join("、");
+      const inventory =
+        listed.drafts.length === 0
+          ? `官方接口返回 ${listed.totalCount} 个草稿条目，但没有可见文章标题。`
+          : `官方接口当前可见标题：${visibleTitles}。`;
+      throw new Error(
+        `草稿箱中没有标题为“${title}”的草稿；未新建任何内容。${inventory}`
+      );
+    }
+    if (matches.length > 1) {
+      throw new Error(`草稿箱中有 ${matches.length} 篇同名草稿；为避免误改，未执行更新。`);
+    }
+    const match = matches[0]!;
+    if (
+      !prepared.publication.artifact.metadata.coverAssetId &&
+      !match.thumbMediaId
+    ) {
+      throw new Error("既有草稿没有可复用的封面，请先配置 crosspost.cover。");
+    }
+    const binding = await this.weChatClient.saveOrUpdateDraft({
+      appId: this.settings.wechatAppId,
+      appSecret,
+      artifact: prepared.publication.artifact,
+      assets: prepared.publication.assets,
+      existingCoverMediaId: match.thumbMediaId,
+      binding: {
+        draftId: match.mediaId,
+        platform: "wechat",
+        sourceHash: prepared.publication.artifact.contentHash,
+        updatedAt: new Date().toISOString()
+      }
+    });
+    await writeDraftBinding(this.app, file, binding);
+    const returned = await this.weChatClient.getDraftArticle(
+      this.settings.wechatAppId,
+      appSecret,
+      binding.draftId!,
+      title
+    );
+    const expectedFormulaCount = (
+      prepared.publication.artifact.html.match(/data-crosspost-formula=/g) ?? []
+    ).length;
+    const persistedFormulaCount = (
+      returned.content.match(/data-crosspost-formula=/g) ?? []
+    ).length;
+    const result: WeChatDraftRoundTripResult = {
+      academicThemePreserved: hasAcademicThemeMarkup(returned.content),
+      currentColorPreserved: returned.content.includes("currentColor"),
+      expectedFormulaCount,
+      mediaId: binding.draftId!,
+      persistedFormulaCount,
+      svgPreserved: returned.content.includes("<svg"),
+      title
+    };
+    const formulaMarkupPreserved =
+      expectedFormulaCount > 0 &&
+      result.svgPreserved &&
+      result.currentColorPreserved &&
+      persistedFormulaCount === expectedFormulaCount;
+    const message =
+      result.academicThemePreserved && formulaMarkupPreserved
+        ? "Draft updated; academic theme and formula markup verified through WeChat draft/get."
+        : "Draft updated, but WeChat did not preserve all theme or inline formula markup.";
+    await this.recordPublicationState(file, "wechat", "draft-saved", message);
+    return result;
+  }
+
+  async createAndVerifyNewWeChatDraft(
+    file: TFile,
+    theme: ThemeId
+  ): Promise<WeChatDraftRoundTripResult> {
+    const appSecret = this.app.secretStorage.getSecret(
+      this.settings.wechatAppSecretId
+    );
+    if (!this.settings.wechatAppId || !appSecret) {
+      throw new Error("请先配置微信公众号 AppID 和 AppSecret。");
+    }
+    const snapshot = await this.createSnapshot(file);
+    const prepared = await this.renderSnapshot(snapshot, "wechat", theme);
+    const inferredCoverAssetId =
+      prepared.publication.artifact.metadata.coverAssetId ??
+      prepared.publication.artifact.assets.find(
+        (asset) => asset.kind === "image"
+      )?.id;
+    const blocking = prepared.publication.artifact.diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.severity === "error" &&
+        !(
+          diagnostic.code === "wechat-cover-required" &&
+          inferredCoverAssetId
+        )
+    );
+    if (blocking.length > 0) {
+      throw new Error(blocking.map((diagnostic) => diagnostic.message).join("\n"));
+    }
+    if (!inferredCoverAssetId) {
+      throw new Error("微信公众号草稿需要封面，且文章中没有可用图片。");
+    }
+    const artifact = {
+      ...prepared.publication.artifact,
+      metadata: {
+        ...prepared.publication.artifact.metadata,
+        coverAssetId: inferredCoverAssetId
+      }
+    };
+    const binding = await this.weChatClient.saveOrUpdateDraft({
+      appId: this.settings.wechatAppId,
+      appSecret,
+      artifact,
+      assets: prepared.publication.assets
+    });
+    await writeDraftBinding(this.app, file, binding);
+    const title = artifact.metadata.title;
+    const returned = await this.weChatClient.getDraftArticle(
+      this.settings.wechatAppId,
+      appSecret,
+      binding.draftId!,
+      title
+    );
+    const expectedFormulaCount = (
+      artifact.html.match(/data-crosspost-formula=/g) ?? []
+    ).length;
+    const persistedFormulaCount = (
+      returned.content.match(/data-crosspost-formula=/g) ?? []
+    ).length;
+    const result: WeChatDraftRoundTripResult = {
+      academicThemePreserved: hasAcademicThemeMarkup(returned.content),
+      currentColorPreserved: returned.content.includes("currentColor"),
+      expectedFormulaCount,
+      mediaId: binding.draftId!,
+      persistedFormulaCount,
+      svgPreserved: returned.content.includes("<svg"),
+      title
+    };
+    const formulaMarkupPreserved =
+      expectedFormulaCount > 0 &&
+      result.svgPreserved &&
+      result.currentColorPreserved &&
+      persistedFormulaCount === expectedFormulaCount;
+    const message =
+      result.academicThemePreserved && formulaMarkupPreserved
+        ? "Draft created; academic theme and formula markup verified through WeChat draft/get."
+        : "Draft created, but WeChat did not preserve all theme or inline formula markup.";
+    await this.recordPublicationState(file, "wechat", "draft-saved", message);
+    return result;
   }
 
   async publish(
@@ -489,7 +777,12 @@ export default class CrosspostStudioPlugin extends Plugin {
         },
         platform,
         rasterizeFormula: browserSvgToPng,
-        renderFormula: renderBundledMathSvg,
+        renderFormula: (latex, display) =>
+          renderBundledMathSvg(
+            latex,
+            display,
+            platform === "wechat" ? "inherit" : "fixed"
+          ),
         renderMermaid: renderObsidianMermaidSvg,
         resolveAsset: (source) => snapshot.resolver.resolve(source),
         theme
@@ -504,10 +797,19 @@ export default class CrosspostStudioPlugin extends Plugin {
           severity: "error"
         });
       }
-      if (publication.artifact.metadata.title.length > 64) {
+      if (Array.from(publication.artifact.metadata.title).length > 32) {
         publication.artifact.diagnostics.push({
           code: "wechat-title-too-long",
-          message: "WeChat titles must be at most 64 characters.",
+          message: "WeChat titles must be at most 32 characters.",
+          severity: "error"
+        });
+      }
+      if (
+        Array.from(publication.artifact.metadata.author ?? "").length > 16
+      ) {
+        publication.artifact.diagnostics.push({
+          code: "wechat-author-too-long",
+          message: "WeChat author names must be at most 16 characters.",
           severity: "error"
         });
       }

@@ -1,13 +1,54 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  areEquivalentDraftUrls,
+  canonicalizeBilibiliDraftUrl,
   getDraftRedirectUrl,
   isExpectedDraftUrl,
   isStableDraftUrl,
-  NEW_DRAFT_URLS
+  NEW_DRAFT_URLS,
+  waitForStableDraftUrl
 } from "./platforms";
 
+describe("Bilibili draft URL canonicalization", () => {
+  it("converts the visible draft-list edit route into the reusable editor route", () => {
+    expect(
+      canonicalizeBilibiliDraftUrl(
+        "https://member.bilibili.com/york/read-edit?aid=360186"
+      )
+    ).toBe("https://member.bilibili.com/york/read-editor?aid=360186");
+  });
+
+  it("rejects untrusted or identifier-free routes", () => {
+    expect(
+      canonicalizeBilibiliDraftUrl(
+        "https://member.bilibili.com.evil.example/york/read-edit?aid=360186"
+      )
+    ).toBeUndefined();
+    expect(
+      canonicalizeBilibiliDraftUrl(
+        "https://member.bilibili.com/york/read-editor?newEditor=-1"
+      )
+    ).toBeUndefined();
+  });
+});
+
 describe("platform draft URLs", () => {
+  it("treats a platform-normalized trailing slash as the same draft tab", () => {
+    expect(
+      areEquivalentDraftUrls(
+        "https://editor.csdn.net/md/?articleId=163383800",
+        "https://editor.csdn.net/md?articleId=163383800"
+      )
+    ).toBe(true);
+    expect(
+      areEquivalentDraftUrls(
+        "https://editor.csdn.net/md?articleId=163383800",
+        "https://editor.csdn.net/md?articleId=163383801"
+      )
+    ).toBe(false);
+  });
+
   it("recognizes every configured new-draft entry URL", () => {
     for (const [platform, url] of Object.entries(NEW_DRAFT_URLS)) {
       expect(isExpectedDraftUrl(platform as keyof typeof NEW_DRAFT_URLS, url))
@@ -64,6 +105,21 @@ describe("platform draft URLs", () => {
         "https://segmentfault.com.evil.example/howtowrite"
       )
     ).toBeUndefined();
+  });
+
+  it("accepts both Tencent Cloud's current and compatibility editor routes", () => {
+    expect(
+      isExpectedDraftUrl(
+        "tencentcloud",
+        "https://cloud.tencent.com/developer/article/write"
+      )
+    ).toBe(true);
+    expect(
+      isStableDraftUrl(
+        "tencentcloud",
+        "https://cloud.tencent.com/developer/article/write?draftId=123"
+      )
+    ).toBe(true);
   });
 
   it.each([
@@ -137,30 +193,71 @@ describe("platform draft URLs", () => {
     expect(isExpectedDraftUrl(platform, url)).toBe(false);
   });
 
-  it("requires reusable draft identifiers for newly-created Bilibili and Tencent Cloud drafts", () => {
-    expect(
-      isStableDraftUrl(
-        "bilibili",
-        "https://member.bilibili.com/york/read-editor?newEditor=-1"
+  it.each(Object.entries(NEW_DRAFT_URLS))(
+    "does not bind the reusable draft for a fresh %s editor URL",
+    (platform, url) => {
+      expect(
+        isStableDraftUrl(platform as keyof typeof NEW_DRAFT_URLS, url)
+      ).toBe(false);
+    }
+  );
+
+  it.each([
+    ["51cto", "https://blog.51cto.com/blogger/draft/123"],
+    [
+      "baijiahao",
+      "https://baijiahao.baidu.com/builder/rc/edit?type=news&article_id=123"
+    ],
+    ["bilibili", "https://member.bilibili.com/york/read-editor?aid=123"],
+    ["cnblogs", "https://i.cnblogs.com/articles/edit;postId=123"],
+    ["csdn", "https://editor.csdn.net/md/?articleId=123"],
+    [
+      "jianshu",
+      "https://www.jianshu.com/writer#/notebooks/52823588/notes/141744564"
+    ],
+    ["juejin", "https://juejin.cn/editor/drafts/7530000000000000000"],
+    ["oschina", "https://my.oschina.net/u/42/blog/ai-write/draft/123"],
+    ["segmentfault", "https://segmentfault.com/write?draftId=1220000041678229"],
+    [
+      "tencentcloud",
+      "https://cloud.tencent.com/developer/article/write-new?draftId=123"
+    ],
+    [
+      "toutiao",
+      "https://mp.toutiao.com/profile_v4/graphic/publish?pgc_id=123"
+    ],
+    ["zhihu", "https://zhuanlan.zhihu.com/p/2066288511632807185/edit"]
+  ] as const)("accepts a reusable %s draft URL", (platform, url) => {
+    expect(isStableDraftUrl(platform, url)).toBe(true);
+  });
+
+  it("waits for an SPA editor to expose its reusable draft URL", async () => {
+    const urls = [
+      "https://juejin.cn/editor/drafts/new",
+      "https://juejin.cn/editor/drafts/7530000000000000000"
+    ];
+    await expect(
+      waitForStableDraftUrl(
+        "juejin",
+        "https://juejin.cn/editor/drafts/new",
+        () => Promise.resolve(urls.shift()),
+        () => Promise.resolve(),
+        2
       )
-    ).toBe(false);
-    expect(
-      isStableDraftUrl(
-        "bilibili",
-        "https://member.bilibili.com/york/read-editor?aid=123"
+    ).resolves.toBe(
+      "https://juejin.cn/editor/drafts/7530000000000000000"
+    );
+  });
+
+  it("does not bind a generic editor URL after the stabilization window", async () => {
+    await expect(
+      waitForStableDraftUrl(
+        "51cto",
+        "https://blog.51cto.com/blogger/publish",
+        () => Promise.resolve("https://blog.51cto.com/blogger/publish"),
+        () => Promise.resolve(),
+        1
       )
-    ).toBe(true);
-    expect(
-      isStableDraftUrl(
-        "tencentcloud",
-        "https://cloud.tencent.com/developer/article/write-new"
-      )
-    ).toBe(false);
-    expect(
-      isStableDraftUrl(
-        "tencentcloud",
-        "https://cloud.tencent.com/developer/article/write-new?draftId=123"
-      )
-    ).toBe(true);
+    ).resolves.toBeUndefined();
   });
 });

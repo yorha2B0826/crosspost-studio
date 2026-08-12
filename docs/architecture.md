@@ -12,9 +12,11 @@ changed" but the in-flight task is not altered.
 
 A unified Markdown AST handles GFM, Obsidian image embeds, formulas, code, and
 compatibility diagnostics. Zhihu formulas are handed to the visible editor to
-generate native LaTeX nodes; platforms without native formula support (WeChat
-and others) receive high-resolution PNGs rasterized from SVG produced by
-Obsidian's bundled MathJax renderer. Intrinsic dimensions and inline baseline
+generate native LaTeX nodes. WeChat receives sanitized MathJax SVG markup
+directly inside the article HTML; it is not an uploaded image, and its
+`currentColor` follows the surrounding text in light and dark modes. Other
+platforms without native formula support receive high-resolution PNGs
+rasterized from the same SVG output. Intrinsic dimensions and inline baseline
 metadata keep formulas aligned with surrounding text. Output includes platform
 HTML, platform Markdown, a content hash, and content-addressed asset descriptors;
 asset bytes live only in memory.
@@ -23,6 +25,10 @@ asset bytes live only in memory.
 
 - The WeChat adapter uploads body images and the cover via the official API
   inside Obsidian, then creates or updates a draft.
+- Manual WeChat handoff offers two derived clipboard formats: rich HTML for a
+  normal editor paste, and literal HTML source for source-editor helpers that
+  read plain clipboard text and apply it to the editor DOM. Markdown remains
+  the canonical source in both cases.
 - Browser-platform jobs are handed to the extension over the local bridge. The
   extension fetches one-shot assets, opens or reuses a strictly allowlisted draft
   URL, injects a runtime content script, and waits for the platform to display an
@@ -73,7 +79,10 @@ CROSSPOST_FORMULA_a7b3c9d1_BLOCK_<hex>_END
 
 The UUID prefix (`a7b3c9d1`) prevents collisions with user-authored text.
 Markdown processors may escape underscores; both forms are matched during
-reconstruction.
+reconstruction. WeChat uses a separate fixed-prefix placeholder while the
+trusted, sanitized inline SVG is carried out-of-band during Markdown-to-HTML
+serialization. Active SVG content, links, event handlers, and external URLs are
+rejected before insertion.
 
 ---
 
@@ -86,13 +95,18 @@ reconstruction.
 "源稿已更新"，但不会改变正在执行的任务。
 
 统一 Markdown AST 负责 GFM、Obsidian 图片嵌入、公式、代码和兼容性诊断。知乎公式交给
-可见编辑器生成原生 LaTeX 节点；微信等不支持原生公式的平台使用 Obsidian 内置 MathJax
-渲染器生成 SVG，再栅格化为高清 PNG。固有尺寸与行内基线信息用于保持公式和正文对齐。
-生成物包含平台 HTML、平台 Markdown、内容哈希和内容寻址资源描述；资源字节只存在内存映射中。
+可见编辑器生成原生 LaTeX 节点。微信使用 Obsidian 内置 MathJax 生成经过安全检查的 SVG，
+直接嵌入文章 HTML；它不是上传图片，并通过 `currentColor` 跟随正文在亮色/夜间模式下换色。
+其他不支持原生公式的平台仍将同一 SVG 栅格化为高清 PNG。固有尺寸与行内基线信息用于保持
+公式和正文对齐。生成物包含平台 HTML、平台 Markdown、内容哈希和内容寻址资源描述；资源
+字节只存在内存映射中。
 
 ## 平台边界
 
 - 微信适配器在 Obsidian 中用官方 API 上传正文图片与封面，然后新增或更新草稿。
+- 微信手工交付提供两种派生剪贴板格式：用于普通粘贴的富 HTML，以及供
+  “读取纯文本剪贴板并写入编辑器 DOM”类源码助手使用的 HTML 源码。两种情况下
+  Markdown 仍是唯一源稿。
 - 浏览器平台 Job 经本地 bridge 交给扩展。扩展获取一次性资源、打开或复用经过严格白名单
   校验的草稿页、注入运行时内容脚本并等待平台显示明确保存状态。
 - 首次创建只有在结果 URL 含有可复用的草稿标识后才会写入 binding；仍停留在通用新建页时
@@ -130,4 +144,5 @@ CROSSPOST_FORMULA_a7b3c9d1_BLOCK_<hex>_END
 ```
 
 UUID 前缀（`a7b3c9d1`）防止与用户正文的意外碰撞。Markdown 处理器可能会转义下划线；
-重建时会同时匹配两种形式。
+重建时会同时匹配两种形式。微信使用另一种固定前缀占位符，在 Markdown 转 HTML 期间于
+AST 外保存可信且已清洗的内联 SVG；插入前会拒绝活动 SVG 内容、链接、事件处理器和外部 URL。

@@ -22,6 +22,47 @@ interface DraftResponse extends WeChatErrorResponse {
   media_id?: string;
 }
 
+interface DraftArticleResponse {
+  content?: string;
+  thumb_media_id?: string;
+  title?: string;
+}
+
+interface DraftListItemResponse {
+  content?: {
+    news_item?: DraftArticleResponse[];
+  };
+  media_id?: string;
+  update_time?: number;
+}
+
+interface DraftBatchResponse extends WeChatErrorResponse {
+  item?: DraftListItemResponse[];
+  item_count?: number;
+  total_count?: number;
+}
+
+interface DraftDetailResponse extends WeChatErrorResponse {
+  news_item?: DraftArticleResponse[];
+}
+
+export interface WeChatDraftMatch {
+  mediaId: string;
+  thumbMediaId?: string;
+  title: string;
+  updateTime?: number;
+}
+
+export interface WeChatDraftArticle {
+  content: string;
+  title: string;
+}
+
+export interface WeChatDraftListResult {
+  drafts: WeChatDraftMatch[];
+  totalCount: number;
+}
+
 export class UnknownDraftStateError extends Error {
   constructor(message: string) {
     super(message);
@@ -64,6 +105,7 @@ export interface WeChatDraftInput {
   artifact: PublicationArtifact;
   assets: ReadonlyMap<string, PublicationAsset>;
   binding?: DraftBinding;
+  existingCoverMediaId?: string;
 }
 
 export class WeChatClient {
@@ -141,6 +183,86 @@ export class WeChatClient {
     return data.url;
   }
 
+  async listDrafts(
+    appId: string,
+    appSecret: string
+  ): Promise<WeChatDraftListResult> {
+    const token = await this.getAccessToken(appId, appSecret);
+    const drafts: WeChatDraftMatch[] = [];
+    let offset = 0;
+    let totalCount = 0;
+    do {
+      const response = await requestUrl({
+        body: JSON.stringify({ count: 20, no_content: 0, offset }),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        method: "POST",
+        url: `https://api.weixin.qq.com/cgi-bin/draft/batchget?access_token=${encodeURIComponent(token)}`
+      });
+      const data = response.json as DraftBatchResponse;
+      assertWeChatSuccess(data, "Draft list request");
+      const items = data.item ?? [];
+      totalCount = data.total_count ?? offset + items.length;
+      for (const item of items) {
+        if (!item.media_id) {
+          continue;
+        }
+        for (const article of item.content?.news_item ?? []) {
+          if (article.title) {
+            drafts.push({
+              mediaId: item.media_id,
+              thumbMediaId: article.thumb_media_id,
+              title: article.title,
+              updateTime: item.update_time
+            });
+          }
+        }
+      }
+      offset += items.length;
+      if (items.length === 0) {
+        break;
+      }
+    } while (offset < totalCount);
+    return { drafts, totalCount };
+  }
+
+  async findDraftsByTitle(
+    appId: string,
+    appSecret: string,
+    title: string
+  ): Promise<WeChatDraftMatch[]> {
+    const { drafts } = await this.listDrafts(appId, appSecret);
+    return drafts.filter((draft) => draft.title === title);
+  }
+
+  async getDraftArticle(
+    appId: string,
+    appSecret: string,
+    mediaId: string,
+    title: string
+  ): Promise<WeChatDraftArticle> {
+    const token = await this.getAccessToken(appId, appSecret);
+    const response = await requestUrl({
+      body: JSON.stringify({ media_id: mediaId }),
+      headers: {
+        "Content-Type": "application/json"
+      },
+      method: "POST",
+      url: `https://api.weixin.qq.com/cgi-bin/draft/get?access_token=${encodeURIComponent(token)}`
+    });
+    const data = response.json as DraftDetailResponse;
+    assertWeChatSuccess(data, "Draft detail request");
+    const article = data.news_item?.find((item) => item.title === title);
+    if (!article) {
+      throw new Error(`WeChat draft no longer contains an article titled "${title}".`);
+    }
+    return {
+      content: article.content ?? "",
+      title
+    };
+  }
+
   private async uploadCover(token: string, asset: PublicationAsset): Promise<string> {
     const multipart = buildMultipart("media", asset);
     const response = await requestUrl({
@@ -165,6 +287,12 @@ export class WeChatClient {
   }
 
   async saveOrUpdateDraft(input: WeChatDraftInput): Promise<DraftBinding> {
+    if (Array.from(input.artifact.metadata.title).length > 32) {
+      throw new Error("WeChat titles must be at most 32 characters.");
+    }
+    if (Array.from(input.artifact.metadata.author ?? "").length > 16) {
+      throw new Error("WeChat author names must be at most 16 characters.");
+    }
     const token = await this.getAccessToken(input.appId, input.appSecret);
     let html = input.artifact.html;
     const remoteImageUrls = new Map<string, string>();
@@ -189,14 +317,17 @@ export class WeChatClient {
     }
 
     const coverId = input.artifact.metadata.coverAssetId;
-    if (!coverId) {
+    let coverMediaId = input.existingCoverMediaId;
+    if (coverId) {
+      const cover = input.assets.get(coverId);
+      if (!cover) {
+        throw new Error("The configured WeChat cover image could not be resolved.");
+      }
+      coverMediaId = await this.uploadCover(token, cover);
+    }
+    if (!coverMediaId) {
       throw new Error("WeChat requires a cover image in crosspost.cover.");
     }
-    const cover = input.assets.get(coverId);
-    if (!cover) {
-      throw new Error("The configured WeChat cover image could not be resolved.");
-    }
-    const coverMediaId = await this.uploadCover(token, cover);
     const article = {
       author: input.artifact.metadata.author ?? "",
       content: html,

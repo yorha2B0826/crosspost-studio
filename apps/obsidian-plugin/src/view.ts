@@ -189,6 +189,7 @@ const DIAGNOSTIC_TITLES: Record<string, string> = {
   "unsupported-dataview": "Dataview 将保留为代码块",
   "unsupported-embed": "暂不支持该嵌入内容",
   "unsupported-mermaid": "Mermaid 将保留为代码块",
+  "wechat-author-too-long": "公众号作者名过长",
   "wechat-cover-required": "公众号需要封面",
   "wechat-image-format-unsupported": "公众号不支持该图片格式",
   "wechat-image-too-large": "图片超过上传限制",
@@ -209,10 +210,17 @@ function localizeStatusMessage(message: string): string {
       "正在冻结本次源稿快照，后续改动不会混入当前任务。",
     "Sending the draft job to the browser extension…":
       "正在将草稿任务交给浏览器扩展。",
+    "The platform reported a save, but the resulting URL did not identify a reusable draft.":
+      "平台已提示保存，但页面还没有可复用的草稿 ID。请先到平台草稿箱确认，不要立即重试。",
+    "The previous create result is unknown. Check the platform first, then clear the unknown-state lock in the task panel.":
+      "上次新建结果尚未确认。请先检查平台草稿箱，再于任务面板解除结果锁。",
+    "The platform redirected away from its draft editor. Sign in and retry the same task.":
+      "平台没有停留在草稿编辑器。请先登录并打开写作页，然后重试当前平台。",
     "Uploading images and saving the WeChat draft…":
       "正在上传图片并保存公众号草稿。"
   };
-  return messages[message] ?? message;
+  const withoutErrorCode = message.replace(/^[a-z0-9-]+:\s*/i, "");
+  return messages[message] ?? messages[withoutErrorCode] ?? message;
 }
 
 function localizeDiagnosticMessage(diagnostic: Diagnostic): string {
@@ -222,9 +230,10 @@ function localizeDiagnosticMessage(diagnostic: Diagnostic): string {
     "raw-html-escaped": "为保证输出安全稳定，原始 HTML 已转为普通文本。",
     "unsupported-dataview": "Dataview 暂不渲染，发布时会保留为代码块。",
     "unsupported-mermaid": "Mermaid 暂不渲染，发布时会保留为代码块。",
+    "wechat-author-too-long": "公众号作者名最多支持 16 个字符。",
     "wechat-cover-required": "请在 frontmatter 的 crosspost.cover 中设置封面图片。",
     "wechat-summary-truncated": "公众号只会使用摘要的前 120 个字符。",
-    "wechat-title-too-long": "公众号标题最多支持 64 个字符。"
+    "wechat-title-too-long": "公众号标题最多支持 32 个字符。"
   };
   return messages[diagnostic.code] ?? diagnostic.message;
 }
@@ -413,6 +422,19 @@ export class CrosspostView extends ItemView {
       if (this.copyButton) {
         void this.copyWeChatLayout(this.copyButton);
       }
+    });
+
+    const copyHtmlButton = actions.createEl("button", {
+      attr: {
+        title:
+          "将生成的 HTML 原样复制为文本，可供微信公众号编辑助手的剪贴板插入功能使用",
+        type: "button"
+      },
+      cls: "crosspost-secondary-action crosspost-copy-action",
+      text: "复制 HTML 源码"
+    });
+    copyHtmlButton.addEventListener("click", () => {
+      void this.copyWeChatHtmlSource(copyHtmlButton);
     });
 
     this.publishButton = actions.createEl("button", {
@@ -697,6 +719,45 @@ export class CrosspostView extends ItemView {
       new Notice("公众号排版已复制，可直接粘贴到公众号编辑器。");
     } catch (error) {
       new Notice(error instanceof Error ? error.message : "复制公众号排版失败。");
+    } finally {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+      button.setText(originalText);
+    }
+  }
+
+  private async copyWeChatHtmlSource(button: HTMLButtonElement): Promise<void> {
+    const file = this.getActiveFile();
+    if (!file) {
+      new Notice("请先打开一篇 Markdown 笔记。");
+      return;
+    }
+    const originalText = button.getText();
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    button.setText("正在准备 HTML…");
+    try {
+      const cached = this.cachedWeChatPreview;
+      if (
+        !cached ||
+        cached.filePath !== file.path ||
+        cached.theme !== this.theme
+      ) {
+        this.activePlatform = "wechat";
+        this.updatePlatformControls();
+        await this.refreshPreview();
+        new Notice("公众号预览已准备，请再次点击复制。");
+        return;
+      }
+      await this.plugin.copyPreparedWeChatHtmlSource(cached.prepared);
+      const hasAssets = cached.prepared.publication.artifact.assets.length > 0;
+      new Notice(
+        hasAssets
+          ? "HTML 源码已复制；其中含本地资源，请在公众号中确认图片已正常上传。"
+          : "HTML 源码已复制，可使用公众号编辑助手插入。"
+      );
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : "复制 HTML 源码失败。");
     } finally {
       button.disabled = false;
       button.removeAttribute("aria-busy");

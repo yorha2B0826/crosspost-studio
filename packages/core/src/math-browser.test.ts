@@ -20,6 +20,13 @@ describe("browser formula rasterizer", () => {
     expect(svg.match(/\bxmlns=/g)).toHaveLength(1);
   });
 
+  it("preserves currentColor for formulas embedded in adaptive HTML", () => {
+    const svg = renderMathSvg("E=mc^2", false, "inherit");
+
+    expect(svg).toContain("currentColor");
+    expect(svg).not.toContain("#1f2328");
+  });
+
   it("uses a transparent high-density canvas while reporting CSS dimensions", async () => {
     const scale = vi.fn();
     const drawImage = vi.fn();

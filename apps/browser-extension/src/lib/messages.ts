@@ -35,6 +35,31 @@ export interface ContentPingMessage {
   type: "crosspost:ping";
 }
 
+export interface SetCsdnMarkdownRequest {
+  markdown: string;
+  type: "crosspost:set-csdn-markdown";
+}
+
+export interface SetCsdnMarkdownResponse {
+  applied: boolean;
+  markdown?: string;
+  message?: string;
+}
+
+export interface UploadBilibiliImageRequest {
+  dataUrl: string;
+  fileName: string;
+  mimeType: string;
+  token: string;
+  type: "crosspost:upload-bilibili-image";
+}
+
+export interface UploadBilibiliImageResponse {
+  message?: string;
+  uploaded: boolean;
+  url?: string;
+}
+
 export interface ApplyDraftResult {
   draftUrl?: string;
   errorCode?: string;

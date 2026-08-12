@@ -1,6 +1,7 @@
 import type { Diagnostic } from "@crosspost/protocol";
 
 const WECHAT_API_ONLY_DIAGNOSTICS = new Set([
+  "wechat-author-too-long",
   "wechat-cover-required",
   "wechat-image-format-unsupported",
   "wechat-image-too-large",
@@ -10,6 +11,10 @@ const WECHAT_API_ONLY_DIAGNOSTICS = new Set([
 
 interface RichClipboard {
   write(items: ClipboardItem[]): Promise<void>;
+}
+
+interface TextClipboard {
+  writeText(text: string): Promise<void>;
 }
 
 interface ClipboardItemFactory {
@@ -47,4 +52,14 @@ export async function writeRichHtmlToClipboard(
     "text/plain": new Blob([htmlToPlainText(html)], { type: "text/plain" })
   });
   await clipboard.write([item]);
+}
+
+export async function writeHtmlSourceToClipboard(
+  html: string,
+  clipboard: TextClipboard = navigator.clipboard
+): Promise<void> {
+  if (typeof clipboard.writeText !== "function") {
+    throw new Error("当前 Obsidian 版本不支持写入文本剪贴板。");
+  }
+  await clipboard.writeText(html);
 }
