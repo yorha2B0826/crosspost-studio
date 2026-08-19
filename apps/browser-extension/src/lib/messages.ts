@@ -46,6 +46,17 @@ export interface SetCsdnMarkdownResponse {
   message?: string;
 }
 
+export interface SetSegmentFaultMarkdownRequest {
+  markdown: string;
+  type: "crosspost:set-segmentfault-markdown";
+}
+
+export interface SetSegmentFaultMarkdownResponse {
+  applied: boolean;
+  markdown?: string;
+  message?: string;
+}
+
 export interface UploadBilibiliImageRequest {
   dataUrl: string;
   fileName: string;
@@ -61,8 +72,10 @@ export interface UploadBilibiliImageResponse {
 }
 
 export interface ApplyDraftResult {
+  bodyText?: string;
   draftUrl?: string;
   errorCode?: string;
+  imageCount?: number;
   message: string;
   saved: boolean;
   unknown?: boolean;

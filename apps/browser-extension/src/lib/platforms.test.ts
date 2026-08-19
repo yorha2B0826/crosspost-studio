@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   areEquivalentDraftUrls,
   canonicalizeBilibiliDraftUrl,
+  canonicalizeCnblogsDraftUrl,
   getDraftRedirectUrl,
   isExpectedDraftUrl,
   isStableDraftUrl,
@@ -29,6 +30,32 @@ describe("Bilibili draft URL canonicalization", () => {
       canonicalizeBilibiliDraftUrl(
         "https://member.bilibili.com/york/read-editor?newEditor=-1"
       )
+    ).toBeUndefined();
+  });
+});
+
+describe("Blog Park draft URL canonicalization", () => {
+  it("converts the saved confirmation route into the reusable editor route", () => {
+    expect(
+      canonicalizeCnblogsDraftUrl(
+        "https://i.cnblogs.com/articles/edit-done;postId=22431509;isPublished=false"
+      )
+    ).toBe("https://i.cnblogs.com/articles/edit;postId=22431509");
+    expect(
+      canonicalizeCnblogsDraftUrl(
+        "https://i.cnblogs.com/articles/edit;postId=22431509"
+      )
+    ).toBe("https://i.cnblogs.com/articles/edit;postId=22431509");
+  });
+
+  it("rejects untrusted or identifier-free routes", () => {
+    expect(
+      canonicalizeCnblogsDraftUrl(
+        "https://i.cnblogs.com.evil.example/articles/edit-done;postId=22431509"
+      )
+    ).toBeUndefined();
+    expect(
+      canonicalizeCnblogsDraftUrl("https://i.cnblogs.com/articles/edit")
     ).toBeUndefined();
   });
 });
@@ -126,6 +153,10 @@ describe("platform draft URLs", () => {
     ["csdn", "https://editor.csdn.net/md/?articleId=123"],
     ["oschina", "https://my.oschina.net/u/42/blog/write/draft/123"],
     ["cnblogs", "https://i.cnblogs.com/articles/edit;postId=123"],
+    [
+      "cnblogs",
+      "https://i.cnblogs.com/articles/edit-done;postId=123;isPublished=false"
+    ],
     ["segmentfault", "https://segmentfault.com/write?draftId=1220000041678229"],
     ["51cto", "https://blog.51cto.com/blogger/draft/123"],
     [
@@ -210,6 +241,10 @@ describe("platform draft URLs", () => {
     ],
     ["bilibili", "https://member.bilibili.com/york/read-editor?aid=123"],
     ["cnblogs", "https://i.cnblogs.com/articles/edit;postId=123"],
+    [
+      "cnblogs",
+      "https://i.cnblogs.com/articles/edit-done;postId=123;isPublished=false"
+    ],
     ["csdn", "https://editor.csdn.net/md/?articleId=123"],
     [
       "jianshu",

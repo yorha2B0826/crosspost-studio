@@ -6,7 +6,9 @@ import type {
 import { browserSvgToPng } from "@crosspost/core/rasterize";
 
 interface PlatformDomDefinition {
+  blurAfterInsert?: boolean;
   contentMode: "adaptive" | "markdown" | "rich-html";
+  deferSaveEvidenceToReload?: boolean;
   editorReadyTimeoutMs?: number;
   editorSelectors: string[];
   imageStrategy: "adaptive" | "markdown-paste" | "rich-paste";
@@ -16,7 +18,7 @@ interface PlatformDomDefinition {
   replaceExistingRichContentByPaste?: boolean;
   richImageDropFallback?: boolean;
   rewriteMarkdownAfterDialogUploads?: boolean;
-  saveActionText?: string;
+  saveActionText?: string | string[];
   saveEvidenceSelectors: string[];
   saveEvidenceText: RegExp;
   titleSelectors: string[];
@@ -27,7 +29,11 @@ interface MarkdownImageDialogDefinition {
   confirmText?: string;
   dialogSelectors: string[];
   inputSelectors: string[];
+  retryCount?: number;
+  retryDelayMs?: number;
   triggerSelectors: string[];
+  uploadPacingMs?: number;
+  uploadTimeoutMs?: number;
 }
 
 interface EmbeddedImage {
@@ -38,6 +44,7 @@ interface EmbeddedImage {
 
 export interface DomAdapterRuntime {
   setCsdnMarkdown?: (markdown: string) => Promise<string | undefined>;
+  setSegmentFaultMarkdown?: (markdown: string) => Promise<string | undefined>;
   uploadBilibiliImage?: (file: File, token: string) => Promise<string | undefined>;
 }
 
@@ -152,6 +159,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "div#arthur-editor"
     ],
     imageStrategy: "rich-paste",
+    replaceExistingRichContentByPaste: true,
     saveEvidenceSelectors: [
       "div:has(#editor) > p",
       "p._3-3KB",
@@ -174,6 +182,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
   cnblogs: {
     contentMode: "markdown",
     editorSelectors: [
+      "textarea#md-editor",
       "textarea#post-body",
       "textarea[name='postBody']",
       ".monaco-editor textarea.inputarea",
@@ -183,8 +192,10 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "textarea"
     ],
     imageStrategy: "markdown-paste",
-    saveActionText: "存为草稿",
+    saveActionText: ["存为草稿", "保存草稿"],
     saveEvidenceSelectors: [
+      "[data-el-locator='post-saved-page']",
+      ".message-panel-header",
       ".ant-message-success",
       "[role='status']",
       "[class*='save-status']",
@@ -296,7 +307,9 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
     ]
   },
   segmentfault: {
+    blurAfterInsert: true,
     contentMode: "markdown",
+    deferSaveEvidenceToReload: true,
     editorSelectors: [
       ".cm-editor .cm-content[contenteditable='true']",
       ".CodeMirror textarea",
@@ -306,6 +319,7 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "textarea"
     ],
     imageStrategy: "markdown-paste",
+    rewriteMarkdownAfterDialogUploads: true,
     markdownImageDialog: {
       closeSelectors: ["button[aria-label='Close']", "button.btn-close"],
       confirmText: "确定",
@@ -313,7 +327,11 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       inputSelectors: [
         "[role='dialog'] input[type='file'][id='editor.imgLink']"
       ],
-      triggerSelectors: ["button.icon-image"]
+      retryCount: 1,
+      retryDelayMs: 5_000,
+      triggerSelectors: ["button.icon-image"],
+      uploadPacingMs: 2_500,
+      uploadTimeoutMs: 15_000
     },
     saveEvidenceSelectors: [
       "[class*='save-status']",
@@ -1002,17 +1020,59 @@ function markdownEditorSurface(editor: HTMLTextAreaElement): HTMLElement {
 
 function markdownEditorText(editor: HTMLTextAreaElement): string {
   const surface = markdownEditorSurface(editor);
-  return surface === editor ? editor.value : surface.textContent ?? "";
+  if (surface === editor) {
+    return editor.value;
+  }
+  const rendered = surface.querySelector<HTMLElement>(".CodeMirror-code");
+  const lines = rendered
+    ? Array.from(
+        rendered.querySelectorAll<HTMLElement>(":scope > pre.CodeMirror-line")
+      )
+    : [];
+  if (lines.length > 0) {
+    return lines
+      .map((line) =>
+        (line.textContent ?? "")
+          .replaceAll("\u200b", "")
+          .replaceAll("\u00a0", " ")
+      )
+      .join("\n");
+  }
+  return rendered?.textContent ?? surface.textContent ?? "";
 }
 
 function extractHttpUrls(value: string): Set<string> {
-  return new Set(value.match(/https?:\/\/[^\s)]+/g) ?? []);
+  const urls = new Set(value.match(/https?:\/\/[^\s)]+/g) ?? []);
+  for (const match of value.matchAll(/!\[[^\]]*\]\((\/[^\s)]+)\)/g)) {
+    const relativeUrl = match[1];
+    if (!relativeUrl) {
+      continue;
+    }
+    try {
+      urls.add(new URL(relativeUrl, location.origin).href);
+    } catch {
+      // Ignore malformed image targets; upload confirmation remains strict.
+    }
+  }
+  return urls;
 }
 
 function httpUrlCounts(value: string): Map<string, number> {
   const counts = new Map<string, number>();
   for (const url of value.match(/https?:\/\/[^\s)]+/g) ?? []) {
     counts.set(url, (counts.get(url) ?? 0) + 1);
+  }
+  for (const match of value.matchAll(/!\[[^\]]*\]\((\/[^\s)]+)\)/g)) {
+    const relativeUrl = match[1];
+    if (!relativeUrl) {
+      continue;
+    }
+    try {
+      const url = new URL(relativeUrl, location.origin).href;
+      counts.set(url, (counts.get(url) ?? 0) + 1);
+    } catch {
+      // Ignore malformed image targets; upload confirmation remains strict.
+    }
   }
   return counts;
 }
@@ -1120,7 +1180,10 @@ async function uploadThroughMarkdownImageDialog(
     }
   }
 
-  const uploaded = await waitFor(hasUploaded, 30_000);
+  const uploaded = await waitFor(
+    hasUploaded,
+    definition.uploadTimeoutMs ?? 30_000
+  );
   if (!uploaded) {
     queryFirst(definition.closeSelectors)?.click();
   } else {
@@ -1135,11 +1198,34 @@ async function uploadThroughMarkdownImageDialog(
   return uploaded;
 }
 
+async function uploadThroughMarkdownImageDialogWithRetry(
+  definition: MarkdownImageDialogDefinition,
+  file: File,
+  hasUploaded: () => boolean
+): Promise<boolean> {
+  const attempts = (definition.retryCount ?? 0) + 1;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0) {
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, definition.retryDelayMs ?? 1_000);
+      });
+    }
+    if (await uploadThroughMarkdownImageDialog(definition, file, hasUploaded)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function uploadTextareaMarkdownImagesWithDialog(
   resolveEditor: () => HTMLElement | undefined,
   images: EmbeddedImage[],
   markdown: string,
-  definition: MarkdownImageDialogDefinition
+  definition: MarkdownImageDialogDefinition,
+  applyMarkdown: (
+    editor: HTMLTextAreaElement,
+    markdown: string
+  ) => Promise<void>
 ): Promise<void> {
   const replacements = new Map<string, string>();
   for (const image of images) {
@@ -1147,33 +1233,47 @@ async function uploadTextareaMarkdownImagesWithDialog(
     if (!editor || !isTextArea(editor)) {
       throw new Error("The Markdown editor was replaced during an image upload.");
     }
-    const previousUrls = extractHttpUrls(markdownEditorText(editor));
+    const previousUrls = httpUrlCounts(markdownEditorText(editor));
     editor.focus();
     editor.setSelectionRange(editor.value.length, editor.value.length);
     let uploadedUrl: string | undefined;
-    const uploaded = await uploadThroughMarkdownImageDialog(
+    const uploadFile = await browserCompatibleUploadFile(image.file);
+    const uploaded = await uploadThroughMarkdownImageDialogWithRetry(
       definition,
-      await browserCompatibleUploadFile(image.file),
+      uploadFile,
       () => {
         const current = resolveEditor();
         if (!current || !isTextArea(current)) {
           return false;
         }
-        uploadedUrl = Array.from(
-          extractHttpUrls(markdownEditorText(current))
-        ).find((url) => !previousUrls.has(url));
+        uploadedUrl = additionalHttpUrl(
+          markdownEditorText(current),
+          previousUrls
+        );
         return uploadedUrl !== undefined;
       }
     );
     if (!uploaded || !uploadedUrl) {
-      throw new Error("The platform did not confirm its image dialog upload.");
+      throw new Error(
+        `The platform did not confirm its image dialog upload for ${uploadFile.name} (${uploadFile.size} bytes).`
+      );
     }
     replacements.set(image.token, uploadedUrl);
+    if (definition.uploadPacingMs && image !== images.at(-1)) {
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, definition.uploadPacingMs);
+      });
+    }
   }
 
   const editor = resolveEditor();
   if (!editor || !isTextArea(editor)) {
     throw new Error("The Markdown editor disappeared before finalizing images.");
+  }
+  if (definition.uploadPacingMs) {
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, definition.uploadPacingMs);
+    });
   }
   let finalizedMarkdown = markdown;
   for (const [token, url] of replacements) {
@@ -1183,7 +1283,7 @@ async function uploadTextareaMarkdownImagesWithDialog(
       `![${alt || "crosspost image"}](${url})`
     );
   }
-  setNativeValue(editor, finalizedMarkdown);
+  await applyMarkdown(editor, finalizedMarkdown);
   const finalized = await waitFor(() => {
     const current = resolveEditor();
     if (!current || !isTextArea(current)) {
@@ -1324,6 +1424,31 @@ async function setContenteditableMarkdown(
   }
 }
 
+async function setTextareaMarkdown(
+  platform: BrowserPlatform,
+  editor: HTMLTextAreaElement,
+  markdown: string,
+  runtime?: DomAdapterRuntime
+): Promise<void> {
+  if (platform === "segmentfault" && editor.closest(".CodeMirror")) {
+    if (!runtime?.setSegmentFaultMarkdown) {
+      throw new Error(
+        "SegmentFault's native CodeMirror writer is unavailable. Reload the extension and retry."
+      );
+    }
+    const appliedMarkdown = await runtime.setSegmentFaultMarkdown(markdown);
+    if (
+      appliedMarkdown !== undefined &&
+      normalizedMarkdownDocument(appliedMarkdown) ===
+        normalizedMarkdownDocument(markdown)
+    ) {
+      return;
+    }
+    throw new Error("SegmentFault did not preserve the source Markdown.");
+  }
+  setNativeValue(editor, markdown);
+}
+
 async function uploadContenteditableMarkdownImagesWithDialog(
   resolveEditor: () => HTMLElement | undefined,
   images: EmbeddedImage[],
@@ -1347,7 +1472,7 @@ async function uploadContenteditableMarkdownImagesWithDialog(
     selection?.addRange(range);
 
     let uploadedUrl: string | undefined;
-    const uploaded = await uploadThroughMarkdownImageDialog(
+    const uploaded = await uploadThroughMarkdownImageDialogWithRetry(
       definition,
       await browserCompatibleUploadFile(image.file),
       () => {
@@ -1409,7 +1534,7 @@ async function uploadMarkdownImageAtTokenWithDialog(
   }
   const previousUrls = extractHttpUrls(markdownEditorVisibleText(editor));
   let uploadedUrl: string | undefined;
-  const uploaded = await uploadThroughMarkdownImageDialog(
+  const uploaded = await uploadThroughMarkdownImageDialogWithRetry(
     definition,
     await browserCompatibleUploadFile(image.file),
     () => {
@@ -1460,7 +1585,11 @@ async function uploadMarkdownImageAtTokenWithDialog(
 async function uploadTextareaMarkdownImages(
   resolveEditor: () => HTMLElement | undefined,
   images: EmbeddedImage[],
-  markdown: string
+  markdown: string,
+  applyMarkdown: (
+    editor: HTMLTextAreaElement,
+    markdown: string
+  ) => Promise<void>
 ): Promise<void> {
   const replacements = new Map<string, string>();
   for (const image of images) {
@@ -1514,7 +1643,7 @@ async function uploadTextareaMarkdownImages(
       `![${alt || "crosspost image"}](${url})`
     );
   }
-  setNativeValue(editor, finalizedMarkdown);
+  await applyMarkdown(editor, finalizedMarkdown);
   const finalized = await waitFor(() => {
     const current = resolveEditor();
     if (!current || !isTextArea(current)) {
@@ -1603,6 +1732,16 @@ function hasEditorContent(editor: HTMLElement): boolean {
   );
 }
 
+function normalizedRichText(value: string): string {
+  return value.replace(/\s+/g, "");
+}
+
+function richEditorContainsHtmlText(editor: HTMLElement, html: string): boolean {
+  const expected = normalizedRichText(htmlToPlainText(html));
+  const actual = normalizedRichText(editor.textContent ?? "");
+  return expected.length === 0 ? !hasEditorContent(editor) : actual.includes(expected);
+}
+
 async function clearEditor(
   resolveEditor: () => HTMLElement | undefined
 ): Promise<HTMLElement> {
@@ -1663,7 +1802,27 @@ async function insertIntoEditor(
       );
     }
     if (isTextArea(editor)) {
-      setNativeValue(editor, prepared.markdown);
+      const applyTextareaMarkdown = (
+        currentEditor: HTMLTextAreaElement,
+        markdown: string
+      ): Promise<void> =>
+        setTextareaMarkdown(
+          payload.platform,
+          currentEditor,
+          markdown,
+          runtime
+        );
+      const deferSegmentFaultMarkdown =
+        payload.platform === "segmentfault" &&
+        prepared.images.length > 0 &&
+        Boolean(
+          definition.markdownImageDialog?.triggerSelectors.some((selector) =>
+            queryFirst([selector])
+          )
+        );
+      if (!deferSegmentFaultMarkdown) {
+        await applyTextareaMarkdown(editor, prepared.markdown);
+      }
       if (
         definition.imageStrategy !== "rich-paste" &&
         prepared.images.length > 0
@@ -1674,7 +1833,8 @@ async function insertIntoEditor(
               resolveEditor,
               prepared.images,
               prepared.markdown,
-              definition.markdownImageDialog
+              definition.markdownImageDialog,
+              applyTextareaMarkdown
             );
           } catch (error) {
             if (!(error instanceof MarkdownImageDialogUnavailableError)) {
@@ -1683,14 +1843,16 @@ async function insertIntoEditor(
             await uploadTextareaMarkdownImages(
               resolveEditor,
               prepared.images,
-              prepared.markdown
+              prepared.markdown,
+              applyTextareaMarkdown
             );
           }
         } else {
           await uploadTextareaMarkdownImages(
             resolveEditor,
             prepared.images,
-            prepared.markdown
+            prepared.markdown,
+            applyTextareaMarkdown
           );
         }
         return;
@@ -1823,7 +1985,11 @@ async function insertIntoEditor(
     accepted &&
     (await waitFor(() => {
       const liveEditor = resolveEditor();
-      if (!liveEditor || !hasEditorContent(liveEditor)) {
+      if (
+        !liveEditor ||
+        !hasEditorContent(liveEditor) ||
+        !richEditorContainsHtmlText(liveEditor, prepared.html)
+      ) {
         return false;
       }
       if (replaceExistingByPaste && prepared.images.length > 0) {
@@ -1839,7 +2005,7 @@ async function insertIntoEditor(
       "The rich-text editor did not confirm replacement of the previous draft."
     );
   }
-  if (pasteApplied || hasEditorContent(currentEditor)) {
+  if (pasteApplied) {
     for (const image of prepared.images) {
       await pasteImageAtToken(
         resolveEditor,
@@ -1848,6 +2014,12 @@ async function insertIntoEditor(
         definition.nativeRichImageUpload
           ? runtime?.uploadBilibiliImage
           : undefined
+      );
+    }
+    const persistedEditor = resolveEditor() ?? currentEditor;
+    if (!richEditorContainsHtmlText(persistedEditor, payload.html)) {
+      throw new Error(
+        "The rich-text editor did not preserve the replacement article body."
       );
     }
     return;
@@ -1868,6 +2040,12 @@ async function insertIntoEditor(
       definition.nativeRichImageUpload
         ? runtime?.uploadBilibiliImage
         : undefined
+    );
+  }
+  const finalizedEditor = resolveEditor() ?? currentEditor;
+  if (!richEditorContainsHtmlText(finalizedEditor, payload.html)) {
+    throw new Error(
+      "The rich-text editor did not preserve the replacement article body."
     );
   }
 }
@@ -1991,6 +2169,15 @@ export async function applyDraftToVisibleEditor(
     };
   }
 
+  if (definition.blurAfterInsert) {
+    const completedEditor = resolveEditor() ?? editor;
+    completedEditor.blur();
+    title.focus();
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 100);
+    });
+  }
+
   if (definition.postInsertSettleMs) {
     await new Promise<void>((resolve) => {
       window.setTimeout(resolve, definition.postInsertSettleMs);
@@ -1998,12 +2185,17 @@ export async function applyDraftToVisibleEditor(
   }
 
   if (definition.saveActionText) {
-    const saveAction = queryExactVisibleText(definition.saveActionText);
+    const saveActionTexts = Array.isArray(definition.saveActionText)
+      ? definition.saveActionText
+      : [definition.saveActionText];
+    const saveAction = saveActionTexts
+      .map((text) => queryExactVisibleText(text))
+      .find((element) => element !== undefined);
     if (!saveAction) {
       return {
         draftUrl: location.href,
         errorCode: "save-action-not-found",
-        message: `The visible ${definition.saveActionText} action was not found. Do not create another draft automatically.`,
+        message: `The visible ${saveActionTexts.join("/")} action was not found. Do not create another draft automatically.`,
         saved: false,
         unknown: true
       };
@@ -2011,7 +2203,25 @@ export async function applyDraftToVisibleEditor(
     saveAction.click();
   }
 
-  if (!(await waitForSaveEvidence(definition, initialSaveStatus))) {
+  if (!(await waitForSaveEvidence(
+    definition,
+    initialSaveStatus,
+    definition.deferSaveEvidenceToReload ? 3_000 : 20_000
+  ))) {
+    if (definition.deferSaveEvidenceToReload) {
+      const completedEditor = resolveEditor() ?? editor;
+      const bodyText = isTextArea(completedEditor)
+        ? markdownEditorText(completedEditor)
+        : markdownEditorVisibleText(completedEditor);
+      return {
+        bodyText: normalizedMarkdownDocument(bodyText),
+        draftUrl: location.href,
+        imageCount: (bodyText.match(/!\[[^\]]*\]\(https?:\/\//g) ?? []).length,
+        message:
+          "The editor accepted the draft; persistence will be verified after reload.",
+        saved: true
+      };
+    }
     return {
       draftUrl: location.href,
       errorCode: "save-unconfirmed",
@@ -2022,8 +2232,18 @@ export async function applyDraftToVisibleEditor(
     };
   }
 
+  const completedEditor = resolveEditor() ?? editor;
+  const bodyText = isTextArea(completedEditor)
+    ? markdownEditorText(completedEditor)
+    : editableText(completedEditor);
   return {
+    bodyText: isTextArea(completedEditor)
+      ? normalizedMarkdownDocument(bodyText)
+      : normalizedRichText(bodyText),
     draftUrl: location.href,
+    imageCount: isTextArea(completedEditor)
+      ? (bodyText.match(/!\[[^\]]*\]\(https?:\/\//g) ?? []).length
+      : completedEditor.querySelectorAll("img").length,
     message: "The platform displayed an explicit draft-saved signal.",
     saved: true
   };

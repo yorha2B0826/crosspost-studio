@@ -6,6 +6,7 @@ import type {
   ApplyDraftResult,
   ContentPingMessage,
   SetCsdnMarkdownResponse,
+  SetSegmentFaultMarkdownResponse,
   UploadBilibiliImageResponse
 } from "../lib/messages";
 
@@ -37,6 +38,23 @@ function isUploadBilibiliImageResponse(
     (!("url" in value) ||
       value.url === undefined ||
       typeof value.url === "string") &&
+    (!("message" in value) ||
+      value.message === undefined ||
+      typeof value.message === "string")
+  );
+}
+
+function isSetSegmentFaultMarkdownResponse(
+  value: unknown
+): value is SetSegmentFaultMarkdownResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "applied" in value &&
+    typeof value.applied === "boolean" &&
+    (!("markdown" in value) ||
+      value.markdown === undefined ||
+      typeof value.markdown === "string") &&
     (!("message" in value) ||
       value.message === undefined ||
       typeof value.message === "string")
@@ -75,6 +93,21 @@ export default defineContentScript({
           return undefined;
         }
         void applyDraftToVisibleEditor(message.payload, {
+          setSegmentFaultMarkdown: async (markdown) => {
+            const response: unknown = await browser.runtime.sendMessage({
+              markdown,
+              type: "crosspost:set-segmentfault-markdown"
+            });
+            if (!isSetSegmentFaultMarkdownResponse(response)) {
+              throw new Error("SegmentFault returned an invalid editor response.");
+            }
+            if (!response.applied) {
+              throw new Error(
+                response.message ?? "SegmentFault rejected the source Markdown."
+              );
+            }
+            return response.markdown;
+          },
           setCsdnMarkdown: async (markdown) => {
             const response: unknown = await browser.runtime.sendMessage({
               markdown,

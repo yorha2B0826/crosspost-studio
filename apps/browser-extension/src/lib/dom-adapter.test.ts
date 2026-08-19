@@ -371,6 +371,131 @@ describe("visible editor adapters", () => {
     );
   });
 
+  it("replaces an existing Jianshu article through the editor paste model", async () => {
+    class TestDataTransfer {
+      private readonly values = new Map<string, string>();
+
+      getData(type: string): string {
+        return this.values.get(type) ?? "";
+      }
+
+      setData(type: string, value: string): void {
+        this.values.set(type, value);
+      }
+    }
+    class TestClipboardEvent extends Event {
+      readonly clipboardData: TestDataTransfer;
+
+      constructor(
+        type: string,
+        init: EventInit & { clipboardData: TestDataTransfer }
+      ) {
+        super(type, init);
+        this.clipboardData = init.clipboardData;
+      }
+    }
+    vi.stubGlobal("DataTransfer", TestDataTransfer);
+    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+
+    document.body.innerHTML = `
+      <div class="writer-pane">
+        <p class="_3-3KB">已保存</p>
+        <div class="article-fields">
+          <input class="_24i7u" value="旧标题" />
+          <div id="editor">
+            <div class="kalamu-area" contenteditable="true"><p>旧正文</p></div>
+          </div>
+        </div>
+      </div>
+    `;
+    const editor = document.querySelector<HTMLElement>(".kalamu-area")!;
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const html = (event as unknown as TestClipboardEvent).clipboardData.getData(
+        "text/html"
+      );
+      if (!html) {
+        return;
+      }
+      editor.innerHTML = html.replaceAll(" ", "");
+      document.querySelector(".writer-pane > p")!.textContent = "保存中";
+      editor.dispatchEvent(
+        new InputEvent("input", { bubbles: true, inputType: "insertFromPaste" })
+      );
+      window.setTimeout(() => {
+        document.querySelector(".writer-pane > p")!.textContent = "已保存";
+      }, 0);
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<h1>新正文</h1><p>完整 富文本 内容</p>",
+      jobId: "00000000-0000-4000-8000-000000000047",
+      markdown: "# 新正文\n\n完整 富文本 内容",
+      platform: "jianshu",
+      title: "新标题"
+    });
+
+    expect(result.saved).toBe(true);
+    expect(editor.textContent).toContain("新正文");
+    expect(editor.textContent).not.toContain("旧正文");
+  });
+
+  it("does not mistake restored Jianshu content for the replacement article", async () => {
+    class TestDataTransfer {
+      private readonly values = new Map<string, string>();
+
+      getData(type: string): string {
+        return this.values.get(type) ?? "";
+      }
+
+      setData(type: string, value: string): void {
+        this.values.set(type, value);
+      }
+    }
+    class TestClipboardEvent extends Event {
+      readonly clipboardData: TestDataTransfer;
+
+      constructor(
+        type: string,
+        init: EventInit & { clipboardData: TestDataTransfer }
+      ) {
+        super(type, init);
+        this.clipboardData = init.clipboardData;
+      }
+    }
+    vi.stubGlobal("DataTransfer", TestDataTransfer);
+    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+
+    document.body.innerHTML = `
+      <div class="writer-pane">
+        <p class="_3-3KB">已保存</p>
+        <div class="article-fields">
+          <input class="_24i7u" value="旧标题" />
+          <div id="editor">
+            <div class="kalamu-area" contenteditable="true"><p>旧正文</p></div>
+          </div>
+        </div>
+      </div>
+    `;
+    const editor = document.querySelector<HTMLElement>(".kalamu-area")!;
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<h1>未写入的新正文</h1>",
+      jobId: "00000000-0000-4000-8000-000000000048",
+      markdown: "# 未写入的新正文",
+      platform: "jianshu",
+      title: "新标题"
+    });
+
+    expect(result.saved).toBe(false);
+    expect(result.unknown).toBe(true);
+    expect(result.errorCode).toBe("editor-update-unconfirmed");
+    expect(editor.textContent).toBe("旧正文");
+  }, 7_000);
+
   it("fills a Juejin Markdown fixture and waits for its save signal", async () => {
     document.body.innerHTML = `
       <input placeholder="请输入标题" />
@@ -525,8 +650,8 @@ describe("visible editor adapters", () => {
 
   it("fills the current Blog Park Markdown editor and clicks only save draft", async () => {
     document.body.innerHTML = `
-      <input class="field__control field__control--title" />
-      <textarea class="not-resizable"></textarea>
+      <input id="post-title" class="field__control field__control--title" />
+      <textarea id="md-editor" class="not-resizable"></textarea>
       <button>存为草稿</button>
       <button>发布</button>
     `;
@@ -536,7 +661,8 @@ describe("visible editor adapters", () => {
     publish.addEventListener("click", publishClick);
     saveDraft.addEventListener("click", () => {
       const status = document.createElement("div");
-      status.className = "ant-message-success";
+      status.className = "message-panel-header";
+      status.dataset.elLocator = "post-saved-page";
       status.textContent = "保存成功";
       document.body.append(status);
     });
@@ -555,6 +681,43 @@ describe("visible editor adapters", () => {
     );
     expect(document.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
       "# 博客园正文"
+    );
+    expect(publishClick).not.toHaveBeenCalled();
+  });
+
+  it("updates an existing Blog Park draft through its save-draft action", async () => {
+    document.body.innerHTML = `
+      <input id="post-title" />
+      <textarea id="md-editor"></textarea>
+      <button>保存草稿</button>
+      <button>发布草稿</button>
+    `;
+    const saveDraft = document.querySelector<HTMLButtonElement>("button")!;
+    const publishDraft = document.querySelectorAll<HTMLButtonElement>("button")[1]!;
+    const publishClick = vi.fn();
+    publishDraft.addEventListener("click", publishClick);
+    saveDraft.addEventListener("click", () => {
+      const status = document.createElement("div");
+      status.className = "message-panel-header";
+      status.dataset.elLocator = "post-saved-page";
+      status.textContent = "保存成功";
+      document.body.append(status);
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<p>博客园更新正文</p>",
+      jobId: "00000000-0000-4000-8000-000000000025",
+      markdown: "# 博客园更新正文",
+      platform: "cnblogs",
+      title: "博客园更新标题"
+    });
+
+    expect(result.saved).toBe(true);
+    expect(document.querySelector<HTMLInputElement>("#post-title")?.value).toBe(
+      "博客园更新标题"
+    );
+    expect(document.querySelector<HTMLTextAreaElement>("#md-editor")?.value).toBe(
+      "# 博客园更新正文"
     );
     expect(publishClick).not.toHaveBeenCalled();
   });
@@ -1361,13 +1524,34 @@ describe("visible editor adapters", () => {
         "\n![已上传](https://img.segmentfault.test/crosspost.png)";
     });
 
-    const result = await applyDraftToVisibleEditor({
-      html: '<p><img src="data:image/png;base64,iVBORw0KGgo="></p>',
-      jobId: "00000000-0000-4000-8000-000000000016",
-      markdown: "![本地图片](data:image/png;base64,iVBORw0KGgo=)",
-      platform: "segmentfault",
-      title: "思否图片草稿"
-    });
+    const result = await applyDraftToVisibleEditor(
+      {
+        html: '<p><img src="data:image/png;base64,iVBORw0KGgo="></p>',
+        jobId: "00000000-0000-4000-8000-000000000016",
+        markdown:
+          "# 思否图片草稿\n\n正文。\n\n- 项目\n  - 子项\n\n![本地图片](data:image/png;base64,iVBORw0KGgo=)",
+        platform: "segmentfault",
+        title: "思否图片草稿"
+      },
+      {
+        setSegmentFaultMarkdown: (markdown) => {
+          rendered.replaceChildren(
+            ...markdown.split("\n").map((line) => {
+              const renderedLine = document.createElement("pre");
+              renderedLine.className = "CodeMirror-line";
+              renderedLine.textContent = line
+                ? line.replace(/^ {2}/, " \u00a0")
+                : "\u200b";
+              return renderedLine;
+            })
+          );
+          if (!markdown.includes("CROSSPOST_IMAGE_")) {
+            document.querySelector(".save-status")!.textContent = "已保存";
+          }
+          return Promise.resolve(markdown);
+        }
+      }
+    );
 
     expect(result.saved).toBe(true);
     expect(rendered.textContent).toContain(
@@ -1375,6 +1559,8 @@ describe("visible editor adapters", () => {
     );
     expect(rendered.textContent).not.toContain("CROSSPOST_IMAGE_");
     expect(rendered.textContent).not.toContain("data:image/png");
+    expect(result.bodyText).toContain("# 思否图片草稿\n\n正文。");
+    expect(result.bodyText).toContain("\n  - 子项\n");
   });
 
   it("uses SegmentFault's image dialog before rebuilding CodeMirror Markdown", async () => {
@@ -1400,6 +1586,13 @@ describe("visible editor adapters", () => {
     `;
     const editor = document.querySelector<HTMLTextAreaElement>("textarea")!;
     const rendered = document.querySelector<HTMLElement>(".CodeMirror-code")!;
+    let finalDocumentBlurred = false;
+    editor.addEventListener("blur", () => {
+      if (!rendered.textContent?.includes("CROSSPOST_IMAGE_")) {
+        finalDocumentBlurred = true;
+        document.querySelector(".save-status")!.textContent = "已保存";
+      }
+    });
     editor.addEventListener("input", () => {
       if (editor.value) {
         rendered.textContent = editor.value;
@@ -1423,24 +1616,34 @@ describe("visible editor adapters", () => {
       });
       dialog.querySelector("button")!.addEventListener("click", () => {
         rendered.textContent +=
-          "\n![已上传](https://img.segmentfault.test/dialog.png)";
+          "\n![已上传](/img/dialog.png)";
         dialog.remove();
       });
       document.body.append(dialog);
     });
 
-    const result = await applyDraftToVisibleEditor({
-      html: '<p><img src="data:image/png;base64,iVBORw0KGgo="></p>',
-      jobId: "00000000-0000-4000-8000-000000000022",
-      markdown: "图片：![本地图片](data:image/png;base64,iVBORw0KGgo=)",
-      platform: "segmentfault",
-      title: "思否图片对话框"
-    });
+    const result = await applyDraftToVisibleEditor(
+      {
+        html: '<p><img src="data:image/png;base64,iVBORw0KGgo="></p>',
+        jobId: "00000000-0000-4000-8000-000000000022",
+        markdown: "图片：![本地图片](data:image/png;base64,iVBORw0KGgo=)",
+        platform: "segmentfault",
+        title: "思否图片对话框"
+      },
+      {
+        setSegmentFaultMarkdown: (markdown) => {
+          editor.focus();
+          rendered.textContent = markdown;
+          return Promise.resolve(markdown);
+        }
+      }
+    );
 
     expect(result.saved).toBe(true);
     expect(rendered.textContent).toBe(
-      "图片：![本地图片](https://img.segmentfault.test/dialog.png)"
+      "图片：![本地图片](http://localhost:3000/img/dialog.png)"
     );
+    expect(finalDocumentBlurred).toBe(true);
     expect(rendered.textContent).not.toContain("CROSSPOST_IMAGE_");
   });
 

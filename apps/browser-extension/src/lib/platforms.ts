@@ -72,6 +72,25 @@ export function canonicalizeBilibiliDraftUrl(value: string): string | undefined 
   }
 }
 
+export function canonicalizeCnblogsDraftUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.hostname !== "i.cnblogs.com") {
+      return undefined;
+    }
+    const match = url.pathname.match(
+      /^\/articles\/(?:edit|edit-done);postId=(\d+)(?:;[^/]*)?\/?$/
+    );
+    const postId = match?.[1] ?? url.searchParams.get("postId");
+    if (!/^\d+$/.test(postId ?? "")) {
+      return undefined;
+    }
+    return `https://i.cnblogs.com/articles/edit;postId=${postId}`;
+  } catch {
+    return undefined;
+  }
+}
+
 export function isExpectedDraftUrl(platform: BrowserPlatform, value: string): boolean {
   try {
     const url = new URL(value);
@@ -101,7 +120,8 @@ export function isExpectedDraftUrl(platform: BrowserPlatform, value: string): bo
         return (
           url.hostname === "i.cnblogs.com" &&
           (url.pathname.startsWith("/posts/edit") ||
-            url.pathname.startsWith("/articles/edit"))
+            url.pathname.startsWith("/articles/edit") ||
+            url.pathname.startsWith("/articles/edit-done"))
         );
       case "jianshu":
         return (
@@ -199,8 +219,7 @@ export function isStableDraftUrl(
       return numericQuery("aid");
     case "cnblogs":
       return (
-        numericQuery("postId") ||
-        /(?:^|;)postId=\d+(?:$|;)/.test(url.pathname)
+        canonicalizeCnblogsDraftUrl(value) !== undefined
       );
     case "csdn":
       return numericQuery("articleId", "id");
