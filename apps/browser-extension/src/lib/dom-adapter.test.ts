@@ -3,6 +3,12 @@
 import { Blob as NodeBlob } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type {
+  TestClipboardEvent,
+  TestDragEvent
+} from "./test-helpers";
+import { stubClipboardGlobals } from "./test-helpers";
+
 import {
   applyDraftToVisibleEditor,
   extractEmbeddedImages,
@@ -121,6 +127,136 @@ describe("visible editor adapters", () => {
     });
 
     expect(result.saved).toBe(true);
+  });
+
+  it("falls back safely when Zhihu consumes synthetic paste without applying it", async () => {
+    stubClipboardGlobals();
+    document.body.innerHTML = `
+      <textarea placeholder="请输入标题"></textarea>
+      <div class="DraftEditor-root"><div contenteditable="true" role="textbox"></div></div>
+      <span class="SaveStatus">保存中</span>
+    `;
+    const editor = document.querySelector<HTMLElement>("[contenteditable]")!;
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      editor.textContent = "平台恢复的旧正文";
+    });
+    editor.addEventListener("input", () => {
+      if (editor.textContent?.includes("新正文")) {
+        document.querySelector(".SaveStatus")!.textContent = "刚刚 · 草稿";
+      }
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<section><h1>新标题</h1><p>新正文</p></section>",
+      jobId: "00000000-0000-4000-8000-000000000052",
+      markdown: "# 新标题\n\n新正文",
+      platform: "zhihu",
+      title: "新标题"
+    });
+
+    expect(result.saved, result.message).toBe(true);
+    expect(editor.textContent).toContain("新正文");
+  });
+
+  it("uses Zhihu's main-world Draft.js writer when the runtime provides it", async () => {
+    document.body.innerHTML = `
+      <textarea placeholder="请输入标题"></textarea>
+      <div class="DraftEditor-root"><div contenteditable="true" role="textbox"></div></div>
+      <span class="SaveStatus">保存中</span>
+    `;
+    const editor = document.querySelector<HTMLElement>("[contenteditable]")!;
+    const setZhihuRichText = vi.fn((html: string) => {
+      editor.innerHTML = html;
+      document.querySelector(".SaveStatus")!.textContent = "刚刚 · 草稿";
+      return Promise.resolve(editor.textContent ?? "");
+    });
+
+    const result = await applyDraftToVisibleEditor(
+      {
+        html: "<section><h1>主上下文标题</h1><p>主上下文正文</p></section>",
+        jobId: "00000000-0000-4000-8000-000000000053",
+        markdown: "# 主上下文标题\n\n主上下文正文",
+        platform: "zhihu",
+        title: "主上下文标题"
+      },
+      { setZhihuRichText }
+    );
+
+    expect(result.saved, result.message).toBe(true);
+    expect(setZhihuRichText).toHaveBeenCalledOnce();
+    expect(editor.textContent).toContain("主上下文正文");
+  });
+
+  it("rejects Zhihu when its Draft.js model drops native formula data", async () => {
+    document.body.innerHTML = `
+      <textarea placeholder="请输入标题"></textarea>
+      <div class="DraftEditor-root"><div contenteditable="true" role="textbox"></div></div>
+      <span class="SaveStatus">保存中</span>
+    `;
+    const editor = document.querySelector<HTMLElement>("[contenteditable]")!;
+    const result = await applyDraftToVisibleEditor(
+      {
+        html:
+          '<section><h1>公式标题</h1><p>公式前<span class="ztext-math" data-tex="E=mc^2">E=mc^2</span>公式后</p></section>',
+        jobId: "00000000-0000-4000-8000-000000000054",
+        markdown: "# 公式标题\n\n公式前 $E=mc^2$ 公式后",
+        platform: "zhihu",
+        title: "公式标题"
+      },
+      {
+        setZhihuRichText: (html: string) => {
+          const parsed = new DOMParser().parseFromString(html, "text/html");
+          for (const formula of parsed.querySelectorAll("[data-tex]")) {
+            formula.remove();
+          }
+          editor.innerHTML = parsed.body.innerHTML;
+          return Promise.resolve(editor.textContent ?? "");
+        }
+      }
+    );
+
+    expect(result.saved).toBe(false);
+    expect(result.unknown).toBe(true);
+    expect(result.message).toContain("native formula");
+  });
+
+  it("accepts Zhihu readback after native formulas replace their LaTeX text", async () => {
+    stubClipboardGlobals();
+    document.body.innerHTML = `
+      <textarea placeholder="请输入标题"></textarea>
+      <div class="DraftEditor-root"><div contenteditable="true" role="textbox"></div></div>
+      <span class="SaveStatus">保存中</span>
+    `;
+    const editor = document.querySelector<HTMLElement>("[contenteditable]")!;
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const html = (event as unknown as TestClipboardEvent).clipboardData.getData(
+        "text/html"
+      );
+      editor.innerHTML = html;
+      const formula = editor.querySelector<HTMLElement>("[data-tex]");
+      if (formula) {
+        formula.className = "FormulaCSR";
+        formula.textContent = "∫";
+      }
+      editor.dispatchEvent(
+        new InputEvent("input", { bubbles: true, inputType: "insertFromPaste" })
+      );
+      document.querySelector(".SaveStatus")!.textContent = "刚刚 · 草稿";
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html:
+        '<section><h1>中文标题</h1><p>公式前<span class="ztext-math" data-tex="E=mc^2">E=mc^2</span>公式后</p></section>',
+      jobId: "00000000-0000-4000-8000-000000000051",
+      markdown: "# 中文标题\n\n公式前 $E=mc^2$ 公式后",
+      platform: "zhihu",
+      title: "中文标题"
+    });
+
+    expect(result.saved, result.message).toBe(true);
+    expect(editor.textContent).toContain("公式前∫公式后");
   });
 
   it("continues with the live Zhihu editor after DraftJS replaces the cleared node", async () => {
@@ -372,30 +508,7 @@ describe("visible editor adapters", () => {
   });
 
   it("replaces an existing Jianshu article through the editor paste model", async () => {
-    class TestDataTransfer {
-      private readonly values = new Map<string, string>();
-
-      getData(type: string): string {
-        return this.values.get(type) ?? "";
-      }
-
-      setData(type: string, value: string): void {
-        this.values.set(type, value);
-      }
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    stubClipboardGlobals();
 
     document.body.innerHTML = `
       <div class="writer-pane">
@@ -440,31 +553,49 @@ describe("visible editor adapters", () => {
     expect(editor.textContent).not.toContain("旧正文");
   });
 
+  it("replaces a Jianshu draft when the editor preserves selection without active focus", async () => {
+    stubClipboardGlobals();
+
+    document.body.innerHTML = `
+      <div class="writer-pane">
+        <p class="_3-3KB">已保存</p>
+        <div class="article-fields">
+          <input class="_24i7u" value="旧标题" />
+          <div id="editor">
+            <div class="kalamu-area" contenteditable="true"><p>旧正文</p></div>
+          </div>
+        </div>
+      </div>
+    `;
+    const editor = document.querySelector<HTMLElement>(".kalamu-area")!;
+    editor.focus = vi.fn();
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const html = (event as unknown as TestClipboardEvent).clipboardData.getData(
+        "text/html"
+      );
+      editor.innerHTML = html;
+      document.querySelector(".writer-pane > p")!.textContent = "保存中";
+      window.setTimeout(() => {
+        document.querySelector(".writer-pane > p")!.textContent = "已保存";
+      }, 0);
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<h1>无焦点替换正文</h1>",
+      jobId: "00000000-0000-4000-8000-000000000049",
+      markdown: "# 无焦点替换正文",
+      platform: "jianshu",
+      title: "无焦点替换标题"
+    });
+
+    expect(result.saved).toBe(true);
+    expect(editor.textContent).toContain("无焦点替换正文");
+    expect(document.activeElement).not.toBe(editor);
+  });
+
   it("does not mistake restored Jianshu content for the replacement article", async () => {
-    class TestDataTransfer {
-      private readonly values = new Map<string, string>();
-
-      getData(type: string): string {
-        return this.values.get(type) ?? "";
-      }
-
-      setData(type: string, value: string): void {
-        this.values.set(type, value);
-      }
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    stubClipboardGlobals();
 
     document.body.innerHTML = `
       <div class="writer-pane">
@@ -505,20 +636,102 @@ describe("visible editor adapters", () => {
     window.setTimeout(() => {
       document.querySelector(".draft-status")!.textContent = "已保存";
     }, 0);
-
-    const result = await applyDraftToVisibleEditor({
-      html: "<p>掘金正文</p>",
-      jobId: "00000000-0000-4000-8000-000000000000",
-      markdown: "# 掘金正文",
-      platform: "juejin",
-      title: "掘金标题"
+    const editor = document.querySelector<HTMLTextAreaElement>(
+      ".CodeMirror textarea"
+    )!;
+    const setJuejinMarkdown = vi.fn((markdown: string) => {
+      editor.value = markdown;
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      return Promise.resolve(markdown);
     });
 
+    const result = await applyDraftToVisibleEditor(
+      {
+        html: "<p>掘金正文</p>",
+        jobId: "00000000-0000-4000-8000-000000000000",
+        markdown: "# 掘金正文",
+        platform: "juejin",
+        title: "掘金标题"
+      },
+      { setJuejinMarkdown }
+    );
+
     expect(result.saved).toBe(true);
+    expect(setJuejinMarkdown).toHaveBeenCalledWith("# 掘金正文");
     expect(document.querySelector("input")?.value).toBe("掘金标题");
     expect(
       document.querySelector<HTMLTextAreaElement>(".CodeMirror textarea")?.value
     ).toBe("# 掘金正文");
+  });
+
+  it("accepts Juejin image URL re-signing after native CodeMirror verification", async () => {
+    stubClipboardGlobals();
+    document.body.innerHTML = `
+      <input placeholder="请输入标题" />
+      <div class="bytemd-editor">
+        <div class="CodeMirror">
+          <textarea></textarea>
+          <div class="CodeMirror-code"></div>
+        </div>
+      </div>
+      <span class="draft-status">保存中</span>
+    `;
+    const editor = document.querySelector<HTMLTextAreaElement>("textarea")!;
+    const rendered = document.querySelector<HTMLElement>(".CodeMirror-code")!;
+    const renderMarkdown = (markdown: string) => {
+      rendered.replaceChildren(
+        ...markdown.split("\n").map((line) => {
+          const renderedLine = document.createElement("pre");
+          renderedLine.className = "CodeMirror-line";
+          renderedLine.textContent = line || "\u200b";
+          return renderedLine;
+        })
+      );
+    };
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const transfer = (event as unknown as TestClipboardEvent).clipboardData;
+      expect(transfer.files[0]?.type).toBe("image/png");
+      renderMarkdown(
+        `${rendered.textContent ?? ""}\n![已上传](https://p0-juejin.test/original.png)`
+      );
+    });
+    const appliedDocuments: string[] = [];
+    const setJuejinMarkdown = vi.fn((markdown: string) => {
+      appliedDocuments.push(markdown);
+      if (markdown.includes("https://p0-juejin.test/original.png")) {
+        renderMarkdown(
+          markdown.replace(
+            "https://p0-juejin.test/original.png",
+            "https://p0-juejin.test/resigned.png?signature=new"
+          )
+        );
+        document.querySelector(".draft-status")!.textContent = "保存成功";
+      } else {
+        renderMarkdown(markdown);
+      }
+      return Promise.resolve(markdown);
+    });
+
+    const result = await applyDraftToVisibleEditor(
+      {
+        html: '<p><img src="data:image/png;base64,iVBORw0KGgo="></p>',
+        jobId: "00000000-0000-4000-8000-000000000031",
+        markdown: "图片：![本地图片](data:image/png;base64,iVBORw0KGgo=)",
+        platform: "juejin",
+        title: "掘金图片草稿"
+      },
+      { setJuejinMarkdown }
+    );
+
+    expect(result.saved).toBe(true);
+    expect(appliedDocuments.at(-1)).toContain(
+      "![本地图片](https://p0-juejin.test/original.png)"
+    );
+    expect(appliedDocuments.at(-1)).not.toContain("CROSSPOST_IMAGE_");
+    expect(rendered.textContent).toContain(
+      "https://p0-juejin.test/resigned.png?signature=new"
+    );
   });
 
   it("fills the current OSChina rich-text editor and waits for autosave", async () => {
@@ -758,6 +971,56 @@ describe("visible editor adapters", () => {
     expect(publishClick).not.toHaveBeenCalled();
   });
 
+  it("accepts Tencent Cloud image paste when the editor does not cancel the event", async () => {
+    stubClipboardGlobals();
+    document.body.innerHTML = `
+      <textarea class="cdc-article-editor__title-input" placeholder="请输入标题"></textarea>
+      <div class="tiptap ProseMirror cdc-rich-editor" contenteditable="true"></div>
+      <button>存草稿</button>
+      <div role="alert"></div>
+    `;
+    const editor = document.querySelector<HTMLElement>("[contenteditable]")!;
+    editor.addEventListener("paste", (event) => {
+      const transfer = (event as unknown as TestClipboardEvent).clipboardData;
+      const richHtml = transfer.getData("text/html");
+      if (richHtml) {
+        event.preventDefault();
+        editor.innerHTML = richHtml;
+      } else {
+        const uploaded = document.createElement("img");
+        uploaded.src = "https://ask.qcloudimg.com/crosspost-upload.png";
+        Object.defineProperties(uploaded, {
+          complete: { value: true },
+          naturalWidth: { value: 640 }
+        });
+        editor.append(uploaded);
+        // The real Tencent editor observes the file paste asynchronously but
+        // does not consistently call preventDefault on the DOM paste event.
+      }
+      editor.dispatchEvent(
+        new InputEvent("input", { bubbles: true, inputType: "insertFromPaste" })
+      );
+    });
+    document.querySelector("button")!.addEventListener("click", () => {
+      document.querySelector("[role='alert']")!.textContent = "保存草稿成功";
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html:
+        '<h2>腾讯云图片正文</h2><p>图片如下</p><img src="data:image/png;base64,iVBORw0KGgo=">',
+      jobId: "00000000-0000-4000-8000-000000000052",
+      markdown: "## 腾讯云图片正文\n\n图片如下",
+      platform: "tencentcloud",
+      title: "腾讯云图片标题"
+    });
+
+    expect(result.saved, result.message).toBe(true);
+    expect(editor.textContent).not.toContain("CROSSPOST_IMAGE_");
+    expect(editor.querySelector("img")?.src).toBe(
+      "https://ask.qcloudimg.com/crosspost-upload.png"
+    );
+  });
+
   it.each([
     {
       editor:
@@ -828,30 +1091,7 @@ describe("visible editor adapters", () => {
   );
 
   it("replaces an existing Toutiao article through its ProseMirror paste model", async () => {
-    class TestDataTransfer {
-      private readonly values = new Map<string, string>();
-
-      getData(type: string): string {
-        return this.values.get(type) ?? "";
-      }
-
-      setData(type: string, value: string): void {
-        this.values.set(type, value);
-      }
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    stubClipboardGlobals();
 
     document.body.innerHTML = `
       <textarea placeholder="请输入标题">旧标题</textarea>
@@ -894,30 +1134,7 @@ describe("visible editor adapters", () => {
   });
 
   it("waits for Toutiao's asynchronously mounted editor before reporting it missing", async () => {
-    class TestDataTransfer {
-      private readonly values = new Map<string, string>();
-
-      getData(type: string): string {
-        return this.values.get(type) ?? "";
-      }
-
-      setData(type: string, value: string): void {
-        this.values.set(type, value);
-      }
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    stubClipboardGlobals();
 
     window.setTimeout(() => {
       document.body.innerHTML = `
@@ -954,37 +1171,7 @@ describe("visible editor adapters", () => {
   }, 6_000);
 
   it("accepts Toutiao media markers without dropping text around an inline formula", async () => {
-    class TestDataTransfer {
-      readonly files: File[] = [];
-      readonly items = {
-        add: (file: File): File => {
-          this.files.push(file);
-          return file;
-        }
-      };
-      private readonly values = new Map<string, string>();
-
-      getData(type: string): string {
-        return this.values.get(type) ?? "";
-      }
-
-      setData(type: string, value: string): void {
-        this.values.set(type, value);
-      }
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    stubClipboardGlobals();
 
     document.body.innerHTML = `
       <textarea placeholder="请输入标题"></textarea>
@@ -1043,30 +1230,7 @@ describe("visible editor adapters", () => {
   });
 
   it("returns rich Toutiao readback for server verification when no save label appears", async () => {
-    class TestDataTransfer {
-      private readonly values = new Map<string, string>();
-
-      getData(type: string): string {
-        return this.values.get(type) ?? "";
-      }
-
-      setData(type: string, value: string): void {
-        this.values.set(type, value);
-      }
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    stubClipboardGlobals();
 
     document.body.innerHTML = `
       <textarea placeholder="请输入标题"></textarea>
@@ -1146,6 +1310,33 @@ describe("visible editor adapters", () => {
     expect(document.querySelector<HTMLElement>("[data-lexical-editor]")?.innerHTML)
       .toContain("<strong>粗体</strong>");
   });
+
+  it("accepts Baijiahao after the visible draft action when no toast appears", async () => {
+    document.body.innerHTML = `
+      <div class="input-box">
+        <div class="FeEditorApp-placeholder">请输入标题（2 - 64字）</div>
+        <div class="FeEditorApp-editor" contenteditable="true"></div>
+      </div>
+      <div class="edui-body-container" contenteditable="true"></div>
+      <button>存草稿</button>
+    `;
+    const saveClick = vi.fn();
+    document.querySelector("button")!.addEventListener("click", saveClick);
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<h2>百家号正文</h2><p>自动保存已接管。</p>",
+      jobId: "00000000-0000-4000-8000-000000000052",
+      markdown: "## 百家号正文\n\n自动保存已接管。",
+      platform: "baijiahao",
+      title: "百家号无提示验收"
+    });
+
+    expect(result.saved, result.message).toBe(true);
+    expect(result.message).toContain("visible draft action");
+    expect(saveClick).toHaveBeenCalledOnce();
+    expect(document.querySelector(".edui-body-container")?.textContent)
+      .toContain("自动保存已接管");
+  }, 5_000);
 
   it("distinguishes Baijiahao's input-box title from its article body", async () => {
     document.body.innerHTML = `
@@ -1298,31 +1489,7 @@ describe("visible editor adapters", () => {
   });
 
   it("accepts Baijiahao's visually normal readback and uploads its iframe image", async () => {
-    class FrameDataTransfer {
-      private readonly values = new Map<string, string>();
-      readonly items = { add: vi.fn() };
-
-      getData(type: string): string {
-        return this.values.get(type) ?? "";
-      }
-
-      setData(type: string, value: string): void {
-        this.values.set(type, value);
-      }
-    }
-    class FrameClipboardEvent extends Event {
-      readonly clipboardData: FrameDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: FrameDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", FrameDataTransfer);
-    vi.stubGlobal("ClipboardEvent", FrameClipboardEvent);
+    stubClipboardGlobals();
 
     document.body.innerHTML = `
       <div class="input-box">
@@ -1346,7 +1513,7 @@ describe("visible editor adapters", () => {
     editorBody.setAttribute("contenteditable", "true");
     const interceptedRichPaste = vi.fn();
     editorBody.addEventListener("paste", (event) => {
-      const transfer = (event as unknown as FrameClipboardEvent).clipboardData;
+      const transfer = (event as unknown as TestClipboardEvent).clipboardData;
       event.preventDefault();
       const richHtml = transfer.getData("text/html");
       if (richHtml) {
@@ -1478,30 +1645,7 @@ describe("visible editor adapters", () => {
   });
 
   it("uses rendered text for a rich editor's plain-text paste fallback", async () => {
-    class TestDataTransfer {
-      private readonly values = new Map<string, string>();
-
-      getData(type: string): string {
-        return this.values.get(type) ?? "";
-      }
-
-      setData(type: string, value: string): void {
-        this.values.set(type, value);
-      }
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    stubClipboardGlobals();
 
     document.body.innerHTML = `
       <textarea placeholder="请输入标题"></textarea>
@@ -1580,30 +1724,7 @@ describe("visible editor adapters", () => {
   });
 
   it("replaces an existing OSChina draft through one editor paste transaction", async () => {
-    class TestDataTransfer {
-      private readonly values = new Map<string, string>();
-
-      getData(type: string): string {
-        return this.values.get(type) ?? "";
-      }
-
-      setData(type: string, value: string): void {
-        this.values.set(type, value);
-      }
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    stubClipboardGlobals();
 
     document.body.innerHTML = `
       <textarea placeholder="请输入文章标题"></textarea>
@@ -1650,49 +1771,7 @@ describe("visible editor adapters", () => {
   });
 
   it("uploads consecutive Bilibili images through HTTP-backed Eva3 drops", async () => {
-    class TestDataTransfer {
-      readonly files: File[] = [];
-      readonly items = {
-        add: (file: File): File => {
-          this.files.push(file);
-          return file;
-        }
-      };
-      private readonly values = new Map<string, string>();
-
-      getData(type: string): string {
-        return this.values.get(type) ?? "";
-      }
-
-      setData(type: string, value: string): void {
-        this.values.set(type, value);
-      }
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    class TestDragEvent extends Event {
-      readonly dataTransfer: TestDataTransfer | null;
-
-      constructor(
-        type: string,
-        init: EventInit & { dataTransfer?: TestDataTransfer | null }
-      ) {
-        super(type, init);
-        this.dataTransfer = init.dataTransfer ?? null;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
-    vi.stubGlobal("DragEvent", TestDragEvent);
+    stubClipboardGlobals();
 
     document.body.innerHTML = `
       <textarea class="title-input__inner" placeholder="请输入标题（建议30字以内）"></textarea>
@@ -1765,30 +1844,7 @@ describe("visible editor adapters", () => {
   });
 
   it("accepts Bilibili native transient images before saved-draft readback", async () => {
-    class TestDataTransfer {
-      private readonly values = new Map<string, string>();
-
-      getData(type: string): string {
-        return this.values.get(type) ?? "";
-      }
-
-      setData(type: string, value: string): void {
-        this.values.set(type, value);
-      }
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    stubClipboardGlobals();
     Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
       configurable: true,
       value: () => ({ drawImage: vi.fn(), scale: vi.fn() })
@@ -1958,37 +2014,7 @@ describe("visible editor adapters", () => {
   );
 
   it("pastes a CSDN Markdown image as a file and waits for its uploaded URL", async () => {
-    class TestDataTransfer {
-      readonly files: File[] = [];
-      readonly items = {
-        add: (file: File): File => {
-          this.files.push(file);
-          return file;
-        }
-      };
-      private readonly values = new Map<string, string>();
-
-      getData(type: string): string {
-        return this.values.get(type) ?? "";
-      }
-
-      setData(type: string, value: string): void {
-        this.values.set(type, value);
-      }
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    stubClipboardGlobals();
 
     document.body.innerHTML = `
       <input id="txtTitle" />
@@ -2029,37 +2055,7 @@ describe("visible editor adapters", () => {
   });
 
   it("uses CSDN's visible image dialog when the current editor exposes it", async () => {
-    class TestDataTransfer {
-      readonly files: File[] = [];
-      readonly items = {
-        add: (file: File): File => {
-          this.files.push(file);
-          return file;
-        }
-      };
-      private readonly values = new Map<string, string>();
-
-      getData(type: string): string {
-        return this.values.get(type) ?? "";
-      }
-
-      setData(type: string, value: string): void {
-        this.values.set(type, value);
-      }
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    stubClipboardGlobals();
 
     document.body.innerHTML = `
       <input id="txtTitle" />
@@ -2135,28 +2131,7 @@ describe("visible editor adapters", () => {
   });
 
   it("uploads CodeMirror images before rewriting the final SegmentFault Markdown", async () => {
-    class TestDataTransfer {
-      readonly files: File[] = [];
-      readonly items = {
-        add: (file: File): File => {
-          this.files.push(file);
-          return file;
-        }
-      };
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    stubClipboardGlobals();
 
     document.body.innerHTML = `
       <input id="title" name="title" />
@@ -2225,112 +2200,7 @@ describe("visible editor adapters", () => {
   });
 
   it("uses SegmentFault's image dialog before rebuilding CodeMirror Markdown", async () => {
-    class TestDataTransfer {
-      readonly files: File[] = [];
-      readonly items = {
-        add: (file: File): File => {
-          this.files.push(file);
-          return file;
-        }
-      };
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-
-    document.body.innerHTML = `
-      <input name="title" />
-      <button class="icon-image"></button>
-      <div class="CodeMirror">
-        <textarea></textarea>
-        <pre class="CodeMirror-code"></pre>
-      </div>
-      <span class="save-status">保存中</span>
-    `;
-    const editor = document.querySelector<HTMLTextAreaElement>("textarea")!;
-    const rendered = document.querySelector<HTMLElement>(".CodeMirror-code")!;
-    let finalDocumentBlurred = false;
-    editor.addEventListener("blur", () => {
-      if (!rendered.textContent?.includes("CROSSPOST_IMAGE_")) {
-        finalDocumentBlurred = true;
-        document.querySelector(".save-status")!.textContent = "已保存";
-      }
-    });
-    editor.addEventListener("input", () => {
-      if (editor.value) {
-        rendered.textContent = editor.value;
-        editor.value = "";
-      }
-      if (!rendered.textContent?.includes("CROSSPOST_IMAGE_")) {
-        document.querySelector(".save-status")!.textContent = "已保存";
-      }
-    });
-    document.querySelector("button")!.addEventListener("click", () => {
-      const dialog = document.createElement("div");
-      dialog.setAttribute("role", "dialog");
-      dialog.setAttribute("aria-modal", "true");
-      dialog.innerHTML = `
-        <input type="file" id="editor.imgLink" />
-        <button>确定</button>
-      `;
-      const input = dialog.querySelector<HTMLInputElement>("input")!;
-      input.addEventListener("change", () => {
-        expect(input.files?.[0]?.type).toBe("image/png");
-      });
-      dialog.querySelector("button")!.addEventListener("click", () => {
-        rendered.textContent +=
-          "\n![已上传](/img/dialog.png)";
-        dialog.remove();
-      });
-      document.body.append(dialog);
-    });
-
-    const result = await applyDraftToVisibleEditor(
-      {
-        html: '<p><img src="data:image/png;base64,iVBORw0KGgo="></p>',
-        jobId: "00000000-0000-4000-8000-000000000022",
-        markdown: "图片：![本地图片](data:image/png;base64,iVBORw0KGgo=)",
-        platform: "segmentfault",
-        title: "思否图片对话框"
-      },
-      {
-        setSegmentFaultMarkdown: (markdown) => {
-          editor.focus();
-          rendered.textContent = markdown;
-          return Promise.resolve(markdown);
-        }
-      }
-    );
-
-    expect(result.saved).toBe(true);
-    expect(rendered.textContent).toBe(
-      "图片：![本地图片](http://localhost:3000/img/dialog.png)"
-    );
-    expect(finalDocumentBlurred).toBe(true);
-    expect(rendered.textContent).not.toContain("CROSSPOST_IMAGE_");
-  });
-
-  it("rewrites 51CTO Markdown after uploads that ignore the selected token", async () => {
-    class TestDataTransfer {
-      readonly files: File[] = [];
-      readonly items = {
-        add: (file: File): File => {
-          this.files.push(file);
-          return file;
-        }
-      };
-    }
-    class TestClipboardEvent extends Event {
-      readonly clipboardData: TestDataTransfer;
-
-      constructor(
-        type: string,
-        init: EventInit & { clipboardData: TestDataTransfer }
-      ) {
-        super(type, init);
-        this.clipboardData = init.clipboardData;
-      }
-    }
-    vi.stubGlobal("DataTransfer", TestDataTransfer);
-    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+    stubClipboardGlobals();
 
     document.body.innerHTML = `
       <input placeholder="请输入标题，您可以输入100个字" />

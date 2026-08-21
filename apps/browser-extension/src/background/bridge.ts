@@ -1,4 +1,5 @@
 import {
+  BROWSER_RUNTIME_REVISION,
   BROWSER_PLATFORM_IDS,
   hmacSha256Hex,
   parseBridgeMessage,
@@ -80,6 +81,7 @@ function sendCapabilities(): void {
     extensionVersion: browser.runtime.getManifest().version,
     platforms: [...BROWSER_PLATFORM_IDS],
     protocolVersion: PROTOCOL_VERSION,
+    runtimeRevision: BROWSER_RUNTIME_REVISION,
     type: "capabilities"
   });
 }

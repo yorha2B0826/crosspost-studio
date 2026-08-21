@@ -33,6 +33,11 @@ export class IdempotencyLedger<T> {
     }
   }
 
+  /** Completed results in insertion order (oldest first), for persistence. */
+  completedValues(): T[] {
+    return [...this.completed.values()];
+  }
+
   release(id: string): void {
     this.active.delete(id);
   }

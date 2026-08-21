@@ -22,6 +22,7 @@
   "dependencies": {
     "@crosspost/protocol": "workspace:*",
     "juice": "^11.0.1",
+    "mathjax-full": "^3.2.2",
     "rehype-highlight": "^7.0.2",
     "rehype-stringify": "^10.0.1",
     "remark-frontmatter": "^5.0.0",
@@ -35,7 +36,6 @@
   "devDependencies": {
     "@types/mdast": "^4.0.4",
     "@types/node": "^24.1.0",
-    "mathjax-full": "^3.2.2",
     "mermaid": "^11.16.0",
     "typescript": "^5.8.3"
   }

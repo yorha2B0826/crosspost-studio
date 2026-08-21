@@ -152,7 +152,9 @@ export function isExpectedDraftUrl(platform: BrowserPlatform, value: string): bo
             /^\/p\/[a-f0-9]+\/edit\/?$/.test(url.pathname))
         );
       case "csdn":
-        return url.hostname === "editor.csdn.net" && url.pathname.startsWith("/md");
+        return (
+          url.hostname === "editor.csdn.net" && /^\/md(?:$|[/?#])/.test(url.pathname)
+        );
       case "juejin":
         return url.hostname === "juejin.cn" && url.pathname.startsWith("/editor/drafts/");
       case "oschina":
@@ -182,10 +184,12 @@ export function isExpectedDraftUrl(platform: BrowserPlatform, value: string): bo
         );
       case "zhihu":
         return (
-          (url.hostname === "zhuanlan.zhihu.com" && url.pathname.startsWith("/write")) ||
+          (url.hostname === "zhuanlan.zhihu.com" &&
+            /^\/write(?:$|\/)/.test(url.pathname)) ||
           (url.hostname === "zhuanlan.zhihu.com" &&
             /^\/p\/\d+\/edit\/?$/.test(url.pathname)) ||
-          (url.hostname === "www.zhihu.com" && url.pathname.includes("/write"))
+          (url.hostname === "www.zhihu.com" &&
+            /\/write(?:$|\/)/.test(url.pathname))
         );
     }
   } catch {

@@ -205,7 +205,7 @@ export async function pasteImageAtToken(
 ): Promise<void> {
   const tokenAppeared = await waitFor(
     () => resolveEditor()?.textContent?.includes(image.token) === true,
-    5_000
+    10_000
   );
   const editor = resolveEditor();
   if (!editor) {
@@ -246,16 +246,13 @@ export async function pasteImageAtToken(
   const uploadFile = await browserCompatibleUploadFile(image.file);
   const transfer = new DataTransfer();
   transfer.items.add(uploadFile);
-  const handled = !editor.dispatchEvent(
+  editor.dispatchEvent(
     new ClipboardEvent("paste", {
       bubbles: true,
       cancelable: true,
       clipboardData: transfer
     })
   );
-  if (!handled) {
-    throw new Error("The editor did not accept an image file paste.");
-  }
 
   const editorAfterPaste = resolveEditor();
   const hasTransientPaste = Boolean(
@@ -320,8 +317,9 @@ export async function pasteImageAtToken(
     ? findTokenRange(currentEditor, image.token)
     : undefined;
   if (remainingToken) {
-    insertion.selection.removeAllRanges();
-    insertion.selection.addRange(remainingToken);
+    const liveSelection = currentEditor?.ownerDocument.defaultView?.getSelection();
+    liveSelection?.removeAllRanges();
+    liveSelection?.addRange(remainingToken);
     remainingToken.deleteContents();
     if (currentEditor) {
       dispatchEditorInput(currentEditor, "deleteContentBackward");

@@ -9,8 +9,13 @@ snapshot of the current note:
 - WeChat content is sent by the plugin directly to WeChat's official API.
 - Browser-platform content is sent via the localhost bridge to the extension,
   which then writes it into the currently-visible editor.
-- The extension only persists connection settings and non-body status metadata;
-  service worker restarts will interrupt in-progress body tasks.
+- The extension persists connection settings and non-body task metadata only.
+  Completed job results (at most 100 entries of metadata: job ID, state, error
+  code, message, binding, draft URL, completion time) and the cancelled set are
+  stored in `browser.storage.local` and restored when the service worker starts.
+  A job interrupted by a service-worker restart returns an explicit `unknown`
+  result and must be verified manually on the platform; it is never re-executed.
+  Article bodies and asset bytes are never persisted.
 
 ## Credentials
 
@@ -63,7 +68,11 @@ Obsidian 快照发送到目标平台：
 
 - 微信内容由插件直接发送至微信官方 API。
 - 浏览器平台内容通过 localhost bridge 发送给扩展，再填入当前可见编辑器。
-- 扩展只保留连接设置和非正文状态元数据；service worker 重启会中断正在运行的正文任务。
+- 扩展只保留连接设置和非正文任务元数据。已完成任务的终态结果（最多 100 条元数据：
+  jobId、state、errorCode、message、binding、draftUrl、completedAt）与 cancelled
+  集合会存入 `browser.storage.local`，并在 service worker 启动时回灌。被 service
+  worker 重启中断的任务会返回显式 `unknown` 结果，需要用户到平台手动核实，绝不重新
+  执行。文章正文与资产字节永不持久化。
 
 ### 凭据
 

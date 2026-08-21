@@ -224,4 +224,126 @@ describe("WeChat official draft adapter", () => {
       media_id: "draft-media-id"
     });
   });
+
+  it("retries exactly once with a refreshed token on invalid-token errors", async () => {
+    let tokenRequests = 0;
+    let uploadRequests = 0;
+    requestUrlMock.mockImplementation(({ url }: { url: string }) => {
+      if (url.includes("/token?")) {
+        tokenRequests += 1;
+        return Promise.resolve({
+          json: { access_token: `token-${tokenRequests}`, expires_in: 7200 }
+        });
+      }
+      if (url.includes("/media/uploadimg?")) {
+        uploadRequests += 1;
+        if (uploadRequests === 1) {
+          return Promise.resolve({
+            json: { errcode: 40001, errmsg: "invalid credential" }
+          });
+        }
+        return Promise.resolve({
+          json: { url: "https://mmbiz.qpic.cn/article-image" }
+        });
+      }
+      if (url.includes("/material/add_material?")) {
+        return Promise.resolve({ json: { media_id: "cover-media-id" } });
+      }
+      if (url.includes("/draft/add?")) {
+        return Promise.resolve({ json: { media_id: "draft-media-id" } });
+      }
+      return Promise.resolve({ json: {} });
+    });
+
+    const client = new WeChatClient();
+    await expect(
+      client.saveOrUpdateDraft({
+        appId: "app-id",
+        appSecret: "app-secret",
+        artifact,
+        assets: new Map([[assetId, asset]])
+      })
+    ).resolves.toMatchObject({ draftId: "draft-media-id" });
+
+    const uploadCalls = requestUrlMock.mock.calls.filter(([request]) =>
+      String(request.url).includes("/media/uploadimg?")
+    );
+    expect(uploadRequests).toBe(2);
+    expect(tokenRequests).toBe(2);
+    expect(String(uploadCalls[0]?.[0].url)).toContain("access_token=token-1");
+    expect(String(uploadCalls[1]?.[0].url)).toContain("access_token=token-2");
+  });
+
+  it("surfaces unrecoverable WeChat errors without retrying", async () => {
+    let uploadRequests = 0;
+    requestUrlMock.mockImplementation(({ url }: { url: string }) => {
+      if (url.includes("/token?")) {
+        return Promise.resolve({
+          json: { access_token: "test-token", expires_in: 7200 }
+        });
+      }
+      if (url.includes("/media/uploadimg?")) {
+        uploadRequests += 1;
+        return Promise.resolve({
+          json: { errcode: 48001, errmsg: "api unauthorized" }
+        });
+      }
+      return Promise.resolve({ json: {} });
+    });
+
+    const client = new WeChatClient();
+    await expect(
+      client.saveOrUpdateDraft({
+        appId: "app-id",
+        appSecret: "app-secret",
+        artifact,
+        assets: new Map([[assetId, asset]])
+      })
+    ).rejects.toThrow("Article image upload failed (48001): api unauthorized");
+    expect(uploadRequests).toBe(1);
+  });
+
+  it("sanitizes header injection in multipart names but keeps CJK file names", async () => {
+    const hostileAsset: PublicationAsset = {
+      ...descriptor,
+      bytes: new Uint8Array([1]),
+      name: `图片\r\n"x\\.png`
+    };
+    const client = new WeChatClient();
+    await client.saveOrUpdateDraft({
+      appId: "app-id",
+      appSecret: "app-secret",
+      artifact,
+      assets: new Map([[assetId, hostileAsset]])
+    });
+
+    const dispositionLines = requestUrlMock.mock.calls
+      .filter(([request]) => String(request.url).includes("/media/uploadimg?"))
+      .map(([request]) => {
+        const body = new TextDecoder().decode(new Uint8Array(request.body));
+        return body
+          .split("\r\n")
+          .find((line) => line.startsWith("Content-Disposition"));
+      });
+    expect(dispositionLines).toEqual([
+      'Content-Disposition: form-data; name="media"; filename="图片___x_.png"'
+    ]);
+
+    const cjkClient = new WeChatClient();
+    await cjkClient.saveOrUpdateDraft({
+      appId: "app-id",
+      appSecret: "app-secret",
+      artifact,
+      assets: new Map([
+        [assetId, { ...hostileAsset, name: "截图 一.png" }]
+      ])
+    });
+    const cjkCall = requestUrlMock.mock.calls.filter(([request]) =>
+      String(request.url).includes("/media/uploadimg?")
+    )[1];
+    const cjkBody = new TextDecoder().decode(
+      new Uint8Array(cjkCall?.[0].body)
+    );
+    expect(cjkBody).toContain('filename="截图 一.png"');
+  });
 });

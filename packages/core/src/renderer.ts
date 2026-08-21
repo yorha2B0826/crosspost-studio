@@ -1,4 +1,5 @@
-import type { Diagnostic, PublicationArtifact } from "@crosspost/protocol";
+import { publicationArtifactSchema } from "@crosspost/protocol";
+import type { Diagnostic } from "@crosspost/protocol";
 import type { Root } from "mdast";
 import juice from "juice";
 import rehypeHighlight from "rehype-highlight";
@@ -50,15 +51,6 @@ export function zhihuFormulaMarker(latex: string, display: boolean): string {
   return `CROSSPOST_FORMULA_${FORMULA_MARKER_PREFIX}_${display ? "BLOCK" : "INLINE"}_${encoded}_END`;
 }
 
-function formulaMarkerRegex(output: "html" | "markdown"): RegExp {
-  // Markdown processors may escape underscores; match both forms.
-  const sep = output === "markdown" ? "\\\\_" : "_";
-  return new RegExp(
-    `CROSSPOST${sep}FORMULA${sep}${FORMULA_MARKER_PREFIX}${sep}(INLINE|BLOCK)${sep}([a-f0-9]+)${sep}END`,
-    "g"
-  );
-}
-
 function decodeHex(value: string): string {
   const bytes = new Uint8Array(value.length / 2);
   for (let index = 0; index < bytes.length; index += 1) {
@@ -76,25 +68,34 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
-function prepareInlineFormulaSvg(
-  svgMarkup: string,
-  latex: string,
-  display: boolean
-): string {
+// Element blacklist uses explicit enumeration with a delimiter boundary
+// (not \b, which fails inside animateTransform/animateMotion) and attribute
+// checks accept "/" as a separator so `<svg/onload=…>` cannot slip through.
+const FORBIDDEN_FORMULA_ELEMENTS =
+  /<\/?(?:script|style|iframe|object|embed|foreignObject|animateTransform|animateMotion|animate|set|a)(?:[\s/>])/i;
+
+function assertSafeFormulaSvg(svgMarkup: string): string {
   const trimmed = svgMarkup.trim();
   if (!/^<svg\b[\s\S]*<\/svg>$/.test(trimmed)) {
     throw new Error("Formula rendering did not return a complete SVG element.");
   }
   if (
-    /<(?:a|animate|embed|foreignObject|iframe|object|script|set|style)\b/i.test(
-      trimmed
-    ) ||
-    /\son[a-z]+\s*=/i.test(trimmed) ||
-    /\s(?:href|xlink:href)\s*=/i.test(trimmed) ||
+    FORBIDDEN_FORMULA_ELEMENTS.test(trimmed) ||
+    /[\s/]on[a-z]+\s*=/i.test(trimmed) ||
+    /[\s/](?:href|xlink:href)\s*=/i.test(trimmed) ||
     /url\s*\(/i.test(trimmed)
   ) {
     throw new Error("Formula rendering returned unsafe inline SVG markup.");
   }
+  return trimmed;
+}
+
+function prepareInlineFormulaSvg(
+  svgMarkup: string,
+  latex: string,
+  display: boolean
+): string {
+  const trimmed = assertSafeFormulaSvg(svgMarkup);
 
   return trimmed.replace(/<svg\b([^>]*)>/, (_opening, rawAttributes: string) => {
     let attributes = rawAttributes;
@@ -161,20 +162,32 @@ function decorateHeadingHierarchy(html: string): string {
 
 function replaceZhihuFormulaMarkers(
   value: string,
-  output: "html" | "markdown"
+  output: "html" | "markdown",
+  emitted: ReadonlySet<string>
 ): string {
-  const marker = formulaMarkerRegex(output);
-  return value.replace(
-    marker,
-    (_marker, mode: string, encoded: string) => {
-      const latex = decodeHex(encoded);
-      const display = mode === "BLOCK";
-      if (output === "markdown") {
-        return display ? `$$\n${latex}\n$$` : `$${latex}$`;
-      }
-      return `<span class="ztext-math" data-tex="${escapeHtml(latex)}" data-eeimg="${display ? "2" : "1"}">${escapeHtml(latex)}</span>`;
+  let replaced = value;
+  // Only rewrite markers this render actually emitted: a literal
+  // CROSSPOST_FORMULA_… token in the source text must survive untouched.
+  for (const marker of emitted) {
+    const parsed = new RegExp(
+      `^CROSSPOST_FORMULA_${FORMULA_MARKER_PREFIX}_(INLINE|BLOCK)_([a-f0-9]+)_END$`
+    ).exec(marker);
+    if (!parsed) {
+      continue;
     }
-  );
+    const serializedMarker =
+      output === "markdown" ? marker.replaceAll("_", "\\_") : marker;
+    const latex = decodeHex(parsed[2] ?? "");
+    const display = parsed[1] === "BLOCK";
+    const replacement =
+      output === "markdown"
+        ? display
+          ? `$$\n${latex}\n$$`
+          : `$${latex}$`
+        : `<span class="ztext-math" data-tex="${escapeHtml(latex)}" data-eeimg="${display ? "2" : "1"}">${escapeHtml(latex)}</span>`;
+    replaced = replaced.replaceAll(serializedMarker, () => replacement);
+  }
+  return replaced;
 }
 
 function assetName(id: string, mimeType: string): string {
@@ -191,13 +204,13 @@ async function addResolvedAsset(
 ): Promise<PublicationAsset> {
   const id = await sha256Hex(resolved.bytes);
   const asset: PublicationAsset = {
-    alt: resolved.alt ?? alt,
+    alt: (resolved.alt ?? alt).slice(0, 2_000),
     bytes: resolved.bytes,
     height: resolved.height,
     id,
     kind,
-    mimeType: resolved.mimeType,
-    name: resolved.name || assetName(id, resolved.mimeType),
+    mimeType: resolved.mimeType.slice(0, 100),
+    name: (resolved.name || assetName(id, resolved.mimeType)).slice(0, 255),
     width: resolved.width
   };
   assets.set(id, asset);
@@ -209,7 +222,8 @@ async function transformNode(
   options: RenderOptions,
   assets: Map<string, PublicationAsset>,
   diagnostics: Diagnostic[],
-  trustedFormulas: Map<string, TrustedFormulaMarkup>
+  trustedFormulas: Map<string, TrustedFormulaMarkup>,
+  emittedZhihuMarkers: Set<string>
 ): Promise<MutableNode> {
   if (node.type === "code" && node.lang === "mermaid") {
     const source = node.value ?? "";
@@ -287,6 +301,7 @@ async function transformNode(
     const display = node.type === "math";
     if (options.platform === "zhihu") {
       const marker = zhihuFormulaMarker(latex, display);
+      emittedZhihuMarkers.add(marker);
       if (!display) {
         return {
           type: "text",
@@ -349,6 +364,11 @@ async function transformNode(
         throw new Error("Formula rendering is unavailable in this environment.");
       }
       const formulaSvg = await options.renderFormula(latex, display);
+      if (!options.rasterizeFormula) {
+        // SVG stays an asset: enforce the same safety contract as the
+        // WeChat inline path. Rasterized output is PNG bytes and exempt.
+        assertSafeFormulaSvg(formulaSvg);
+      }
       const resolved: ResolvedAsset = options.rasterizeFormula
         ? {
             ...(await options.rasterizeFormula(formulaSvg, display)),
@@ -421,24 +441,36 @@ async function transformNode(
         : fallback;
     }
   }
-
   if (node.type === "image" && node.url) {
+    let sourceUrl = node.url;
+    let widthHint: number | undefined;
+    // Obsidian embeds carry a pure-numeric label as a width hint in the
+    // URL fragment (`obsidian-asset:photo.png#w=600`).
+    const widthMatch = /#w=(\d+)$/.exec(sourceUrl);
+    if (widthMatch) {
+      widthHint = Number(widthMatch[1]);
+      sourceUrl = sourceUrl.slice(0, widthMatch.index);
+    }
     if (!options.resolveAsset) {
       diagnostics.push({
         code: "image-not-resolved",
-        message: `Image "${node.url}" was not bundled because no resolver was available.`,
+        message:
+          `Image "${sourceUrl}" was not bundled because no resolver was available.`.slice(
+            0,
+            1_000
+          ),
         severity: "warning",
-        source: node.url
+        source: sourceUrl.slice(0, 500)
       });
       return node;
     }
-    const resolved = await options.resolveAsset(node.url);
+    const resolved = await options.resolveAsset(sourceUrl);
     if (!resolved) {
       diagnostics.push({
         code: "image-resolution-failed",
-        message: `Image "${node.url}" could not be loaded.`,
+        message: `Image "${sourceUrl}" could not be loaded.`.slice(0, 1_000),
         severity: "error",
-        source: node.url
+        source: sourceUrl.slice(0, 500)
       });
       return node;
     }
@@ -449,6 +481,7 @@ async function transformNode(
         ...node.data,
         hProperties: {
           ...node.data?.hProperties,
+          ...(widthHint === undefined ? {} : { width: widthHint }),
           "data-asset-id": asset.id
         }
       },
@@ -479,7 +512,14 @@ async function transformNode(
   if (node.children) {
     node.children = await Promise.all(
       node.children.map((child) =>
-        transformNode(child, options, assets, diagnostics, trustedFormulas)
+        transformNode(
+          child,
+          options,
+          assets,
+          diagnostics,
+          trustedFormulas,
+          emittedZhihuMarkers
+        )
       )
     );
   }
@@ -494,6 +534,7 @@ export async function renderPublication(
   const diagnostics = [...preprocessed.diagnostics];
   const assets = new Map<string, PublicationAsset>();
   const trustedFormulas = new Map<string, TrustedFormulaMarkup>();
+  const emittedZhihuMarkers = new Set<string>();
 
   const parser = unified()
     .use(remarkParse)
@@ -507,7 +548,8 @@ export async function renderPublication(
     options,
     assets,
     diagnostics,
-    trustedFormulas
+    trustedFormulas,
+    emittedZhihuMarkers
   )) as Root;
 
   const htmlProcessor = unified()
@@ -519,7 +561,7 @@ export async function renderPublication(
   const themedHtml = decorateHeadingHierarchy(rawHtml);
   const platformHtmlWithMarkers =
     options.platform === "zhihu"
-      ? replaceZhihuFormulaMarkers(themedHtml, "html")
+      ? replaceZhihuFormulaMarkers(themedHtml, "html", emittedZhihuMarkers)
       : themedHtml;
   const platformHtml = replaceTrustedFormulaMarkup(
     platformHtmlWithMarkers,
@@ -528,7 +570,15 @@ export async function renderPublication(
   );
 
   const css = `${getThemeCss(options.theme)}\n${
-    options.customCss ? sanitizeCustomCss(options.customCss) : ""
+    options.customCss
+      ? sanitizeCustomCss(options.customCss, (warning) => {
+          diagnostics.push({
+            code: "custom-css-parse-failed",
+            message: warning,
+            severity: "warning"
+          });
+        })
+      : ""
   }`;
   const html = juice.inlineContent(`<section id="crosspost-root">${platformHtml}</section>`, css, {
     preserveImportant: true,
@@ -542,7 +592,7 @@ export async function renderPublication(
   const rawMarkdown = markdownProcessor.stringify(transformed);
   const renderedMarkdownWithMarkers =
     options.platform === "zhihu"
-      ? replaceZhihuFormulaMarkers(rawMarkdown, "markdown")
+      ? replaceZhihuFormulaMarkers(rawMarkdown, "markdown", emittedZhihuMarkers)
       : rawMarkdown;
   const renderedMarkdown = replaceTrustedFormulaMarkup(
     renderedMarkdownWithMarkers,
@@ -557,7 +607,7 @@ export async function renderPublication(
     tags: options.metadata.tags ?? [],
     title: options.metadata.title
   };
-  const artifact: PublicationArtifact = {
+  const artifact = publicationArtifactSchema.parse({
     assets: Array.from(assets.values(), ({ bytes: _bytes, ...descriptor }) => descriptor),
     contentHash,
     diagnostics,
@@ -565,7 +615,7 @@ export async function renderPublication(
     markdown: renderedMarkdown,
     metadata,
     platform: options.platform
-  };
+  });
 
   return {
     artifact,

@@ -74,7 +74,7 @@ export const publicationArtifactSchema = z.object({
   markdown: z.string(),
   metadata: z.object({
     author: z.string().max(100).optional(),
-    coverAssetId: z.string().optional(),
+    coverAssetId: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     summary: z.string().max(2_000).optional(),
     tags: z.array(z.string().max(100)).default([]),
     title: z.string().min(1).max(200)
@@ -139,6 +139,10 @@ export const capabilitiesSchema = z.object({
   extensionVersion: z.string().min(1).max(50),
   platforms: z.array(browserPlatformSchema),
   protocolVersion: z.literal(PROTOCOL_VERSION),
+  // Optional for the pre-runtime-revision 1.0.x extension. The Obsidian
+  // bridge assigns it a restricted legacy capability set instead of treating
+  // it as the current runtime.
+  runtimeRevision: z.string().min(1).max(100).optional(),
   type: z.literal("capabilities")
 });
 

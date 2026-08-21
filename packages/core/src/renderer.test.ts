@@ -364,4 +364,138 @@ crosspost:
     ]);
     expect(afterHash).toBe(beforeHash);
   });
+
+  it("rejects separator- and prefix-based SVG smuggling in WeChat formulas", async () => {
+    const payloads = [
+      '<svg xmlns="http://www.w3.org/2000/svg"><svg/onload=alert(1)></svg>',
+      '<svg xmlns="http://www.w3.org/2000/svg"><image/href="https://evil.example/x"></image></svg>',
+      '<svg xmlns="http://www.w3.org/2000/svg"><animateTransform attributeName="transform"></animateTransform></svg>',
+      '<svg xmlns="http://www.w3.org/2000/svg"><set attributeName="transform"></set></svg>'
+    ];
+    for (const payload of payloads) {
+      const rendered = await renderPublication("Inline $E=mc^2$", {
+        metadata: { title: "对抗样本" },
+        platform: "wechat",
+        renderFormula: () => payload,
+        theme: "minimal"
+      });
+      expect(rendered.artifact.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "formula-render-failed",
+            severity: "error"
+          })
+        ])
+      );
+    }
+  });
+
+  it("keeps literal formula markers untouched while decoding emitted ones", async () => {
+    const literal =
+      "CROSSPOST_FORMULA_a7b3c9d1_INLINE_68656c6c6f_END";
+    for (const platform of ["juejin", "zhihu"] as const) {
+      const rendered = await renderPublication(
+        `Forged: ${literal}\n\nReal: $E=mc^2$`,
+        {
+          metadata: { title: "标记防伪造" },
+          platform,
+          renderFormula:
+            platform === "juejin"
+              ? (_latex, display) =>
+                  `<svg xmlns="http://www.w3.org/2000/svg" width="${display ? 120 : 40}" height="${display ? 32 : 16}"><path d="M0 0h1v1z"></path></svg>`
+              : undefined,
+          theme: "minimal"
+        }
+      );
+      expect(rendered.artifact.html).toContain(literal);
+      // remark-stringify escapes underscores in Markdown text output.
+      expect(rendered.artifact.markdown).toContain(
+        literal.replaceAll("_", "\\_")
+      );
+      if (platform === "zhihu") {
+        expect(rendered.artifact.html).toContain('data-tex="E=mc^2"');
+      } else {
+        expect(rendered.artifact.assets.some((asset) =>
+          asset.kind.startsWith("formula")
+        )).toBe(true);
+      }
+    }
+  });
+
+  it("applies the same SVG safety contract to non-WeChat formula assets", async () => {
+    const rendered = await renderPublication(
+      "Inline $\\href{javascript:alert(1)}{x}$",
+      {
+        metadata: { title: "非微信公式安全" },
+        platform: "juejin",
+        renderFormula: (latex, display) => renderMathSvg(latex, display, "inherit"),
+        theme: "minimal"
+      }
+    );
+
+    expect(rendered.artifact.html).not.toContain("<a");
+    expect(rendered.artifact.html).not.toContain("href=");
+    expect(rendered.artifact.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "formula-render-failed",
+          severity: "error"
+        })
+      ])
+    );
+  });
+
+  it("clamps oversized image diagnostics to schema limits", async () => {
+    const longUrl = `https://example.com/${"u".repeat(2_000)}.png`;
+    const rendered = await renderPublication(`![图](${longUrl})`, {
+      metadata: { title: "字段钳制" },
+      platform: "juejin",
+      theme: "minimal"
+    });
+
+    const failed = rendered.artifact.diagnostics.find(
+      (diagnostic) => diagnostic.code === "image-not-resolved"
+    );
+    expect(failed).toBeDefined();
+    expect(failed?.source?.length).toBeLessThanOrEqual(500);
+    expect(failed?.message.length).toBeLessThanOrEqual(1_000);
+  });
+
+  it("clamps resolved asset descriptor fields to schema limits", async () => {
+    const rendered = await renderPublication("![[photo.png]]", {
+      metadata: { title: "资产钳制" },
+      platform: "juejin",
+      resolveAsset: () =>
+        Promise.resolve({
+          alt: "长替代".repeat(1_000),
+          bytes: PNG_HEADER,
+          mimeType: "image/png",
+          name: "n".repeat(600)
+        }),
+      theme: "minimal"
+    });
+
+    const [asset] = rendered.artifact.assets;
+    expect(asset?.alt.length).toBeLessThanOrEqual(2_000);
+    expect(asset?.name.length).toBeLessThanOrEqual(255);
+    expect(asset?.mimeType.length).toBeLessThanOrEqual(100);
+  });
+
+  it("treats a pure-numeric Obsidian embed label as a width hint", async () => {
+    const rendered = await renderPublication("![[photo.png|600]]", {
+      metadata: { title: "宽度提示" },
+      platform: "juejin",
+      resolveAsset: () =>
+        Promise.resolve({
+          bytes: PNG_HEADER,
+          mimeType: "image/png",
+          name: "photo.png"
+        }),
+      theme: "minimal"
+    });
+
+    expect(rendered.artifact.html).toContain('width="600"');
+    expect(rendered.artifact.html).not.toContain('>600<');
+    expect(rendered.artifact.html).toContain('alt="photo.png"');
+  });
 });

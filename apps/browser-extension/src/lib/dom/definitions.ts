@@ -49,8 +49,10 @@ export const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
     ]
   },
   baijiahao: {
+    acceptSaveActionWithoutEvidence: true,
     blurAfterInsert: true,
     contentMode: "rich-html",
+    deferSaveEvidenceToReload: true,
     editorReadyTimeoutMs: 8_000,
     editorSelectors: [
       ".edui-body-container[contenteditable='true']",
@@ -167,6 +169,7 @@ export const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
   },
   cnblogs: {
     contentMode: "markdown",
+    editorReadyTimeoutMs: 10_000,
     editorSelectors: [
       "textarea#md-editor",
       "textarea#post-body",
@@ -201,6 +204,7 @@ export const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
   },
   csdn: {
     contentMode: "markdown",
+    deferSaveEvidenceToReload: true,
     editorReadyTimeoutMs: 8_000,
     editorSelectors: [
       "pre.editor__inner.markdown-highlighting[contenteditable='true']",
@@ -411,6 +415,8 @@ export const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "[contenteditable='true'][role='textbox']"
     ],
     imageStrategy: "rich-paste",
+    retryUnappliedRichPasteWithDirectInsert: true,
+    richPasteApplyTimeoutMs: 1_500,
     saveEvidenceSelectors: [
       "[class*='Save']",
       "[class*='save']",

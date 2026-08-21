@@ -85,6 +85,33 @@ type SearchableSettingKey =
   | "theme"
   | "wechatAppId";
 
+const THEME_OPTIONS: Record<ThemeId, string> = {
+  academic: "学术",
+  bold: "粗犷",
+  cherry: "樱花",
+  dark: "暗夜",
+  elegant: "典雅",
+  forest: "森林",
+  fresh: "清新",
+  minimal: "简约",
+  mono: "等宽",
+  ocean: "海洋",
+  paper: "白纸",
+  tech: "科技",
+  vintage: "古典",
+  warm: "温暖",
+  zen: "禅意"
+};
+
+function isValidPort(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1_024 &&
+    value <= 65_535
+  );
+}
+
 export class CrosspostSettingTab extends PluginSettingTab {
   constructor(private readonly plugin: CrosspostStudioPlugin) {
     super(plugin.app, plugin);
@@ -102,23 +129,7 @@ export class CrosspostSettingTab extends PluginSettingTab {
           {
             control: {
               key: "theme",
-              options: {
-                academic: "学术",
-                bold: "粗犷",
-                cherry: "樱花",
-                dark: "暗夜",
-                elegant: "典雅",
-                forest: "森林",
-                fresh: "清新",
-                minimal: "简约",
-                mono: "等宽",
-                ocean: "海洋",
-                paper: "白纸",
-                tech: "科技",
-                vintage: "古典",
-                warm: "温暖",
-                zen: "禅意"
-              },
+              options: THEME_OPTIONS,
               type: "dropdown"
             },
             desc: "笔记未指定主题时使用的排版样式。",
@@ -152,17 +163,7 @@ export class CrosspostSettingTab extends PluginSettingTab {
             desc: "选择或创建 Obsidian 加密密钥；明文不会写入 data.json。",
             name: "微信公众号应用密钥",
             render: (setting) => {
-              setting.addComponent(
-                (element) =>
-                  new SecretComponent(this.app, element)
-                    .setValue(this.plugin.settings.wechatAppSecretId)
-                    .onChange(async (value) => {
-                      if (value) {
-                        this.plugin.settings.wechatAppSecretId = value;
-                        await this.plugin.saveSettings();
-                      }
-                    })
-              );
+              this.attachWeChatSecretComponent(setting);
             }
           }
         ],
@@ -179,7 +180,7 @@ export class CrosspostSettingTab extends PluginSettingTab {
               step: 1,
               type: "number",
               validate: (value) =>
-                Number.isInteger(value)
+                isValidPort(value)
                   ? undefined
                   : "请输入 1024 至 65535 之间的整数。"
             },
@@ -211,40 +212,23 @@ export class CrosspostSettingTab extends PluginSettingTab {
     key: SearchableSettingKey,
     value: unknown
   ): Promise<void> {
+    let restartBridge = false;
     if (key === "bridgePort") {
-      if (
-        typeof value === "number" &&
-        Number.isInteger(value) &&
-        value >= 1_024 &&
-        value <= 65_535
-      ) {
+      if (isValidPort(value)) {
         this.plugin.settings.bridgePort = value;
+        restartBridge = true;
       }
     } else if (key === "theme") {
-      const validThemes = new Set([
-        "academic",
-        "bold",
-        "cherry",
-        "dark",
-        "elegant",
-        "forest",
-        "fresh",
-        "minimal",
-        "mono",
-        "ocean",
-        "paper",
-        "tech",
-        "vintage",
-        "warm",
-        "zen"
-      ]);
-      if (validThemes.has(value as ThemeId)) {
+      if (typeof value === "string" && value in THEME_OPTIONS) {
         this.plugin.settings.theme = value as ThemeId;
       }
     } else if (typeof value === "string") {
       this.plugin.settings[key] = value.trim();
     }
     await this.plugin.saveSettings();
+    if (restartBridge) {
+      await this.plugin.restartBridge();
+    }
   }
 
   display(): void {
@@ -266,23 +250,7 @@ export class CrosspostSettingTab extends PluginSettingTab {
       .setDesc("笔记未指定主题时使用的排版样式。")
       .addDropdown((dropdown) => {
         dropdown
-          .addOptions({
-            academic: "学术",
-            bold: "粗犷",
-            cherry: "樱花",
-            dark: "暗夜",
-            elegant: "典雅",
-            forest: "森林",
-            fresh: "清新",
-            minimal: "简约",
-            mono: "等宽",
-            ocean: "海洋",
-            paper: "白纸",
-            tech: "科技",
-            vintage: "古典",
-            warm: "温暖",
-            zen: "禅意"
-          })
+          .addOptions(THEME_OPTIONS)
           .setValue(this.plugin.settings.theme)
           .onChange(async (value) => {
             this.plugin.settings.theme = value as ThemeId;
@@ -432,19 +400,10 @@ export class CrosspostSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(containerEl)
+    const secretSetting = new Setting(containerEl)
       .setName("微信公众号应用密钥")
-      .setDesc("选择或创建 Obsidian 加密密钥；明文不会写入 data.json。")
-      .addComponent((element) =>
-        new SecretComponent(this.app, element)
-          .setValue(this.plugin.settings.wechatAppSecretId)
-          .onChange(async (value) => {
-            if (value) {
-              this.plugin.settings.wechatAppSecretId = value;
-              await this.plugin.saveSettings();
-            }
-          })
-      );
+      .setDesc("选择或创建 Obsidian 加密密钥；明文不会写入 data.json。");
+    this.attachWeChatSecretComponent(secretSetting);
 
     new Setting(containerEl)
       .setName("测试微信连接")
@@ -483,9 +442,10 @@ export class CrosspostSettingTab extends PluginSettingTab {
       .addText((text) => {
         text.setValue(String(this.plugin.settings.bridgePort)).onChange(async (value) => {
           const port = Number.parseInt(value, 10);
-          if (Number.isInteger(port) && port >= 1_024 && port <= 65_535) {
+          if (isValidPort(port)) {
             this.plugin.settings.bridgePort = port;
             await this.plugin.saveSettings();
+            await this.plugin.restartBridge();
           }
         });
       });
@@ -498,6 +458,20 @@ export class CrosspostSettingTab extends PluginSettingTab {
           await this.copyPairingSecret();
         });
       });
+  }
+
+  private attachWeChatSecretComponent(setting: Setting): void {
+    setting.addComponent(
+      (element) =>
+        new SecretComponent(this.app, element)
+          .setValue(this.plugin.settings.wechatAppSecretId)
+          .onChange(async (value) => {
+            if (value) {
+              this.plugin.settings.wechatAppSecretId = value;
+              await this.plugin.saveSettings();
+            }
+          })
+    );
   }
 
   private async copyPairingSecret(): Promise<void> {

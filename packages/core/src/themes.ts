@@ -59,21 +59,46 @@ const BASE_CSS = `
 // crosspost-section-number, crosspost-subsection-marker) injected by the
 // renderer; these styles make them look like a reference paper outline.
 // Colors are theme-specific; the structure is common.
+interface HeadingCssOptions {
+  h1FirstChildMarginTop?: string;
+  h1Margin?: string;
+  h2Color?: string;
+  h2FontSize?: string;
+  h2LetterSpacing?: string;
+  h2Margin?: string;
+  h2Padding?: string;
+  h3Background?: string;
+  h3Border?: string;
+  h3Color?: string;
+  h3FontSize?: string;
+  h3LetterSpacing?: string;
+  h3Margin?: string;
+  h3Padding?: string;
+  markerFontFamily?: string;
+  partTitleColor?: string;
+  partTitleFontSize?: string;
+  partTitleLetterSpacing?: string;
+  sectionNumberColor?: string;
+  sectionNumberFontFamily?: string;
+}
+
 function headingCss(
   accent: string,
   softBg: string,
   softBorder: string,
-  label: string
+  label: string,
+  overrides: HeadingCssOptions = {}
 ): string {
+  const o = overrides;
   return `
 #crosspost-root h1 {
   font-weight: 700;
   line-height: 1.45;
-  margin: 2.6em 0 1.2em;
+  margin: ${o.h1Margin ?? "2.6em 0 1.2em"};
   padding: 0;
   text-align: center;
 }
-#crosspost-root h1:first-child { margin-top: 0.8em; }
+#crosspost-root h1:first-child { margin-top: ${o.h1FirstChildMarginTop ?? "0.8em"}; }
 #crosspost-root .crosspost-part-label {
   color: ${label};
   display: block;
@@ -85,27 +110,27 @@ function headingCss(
   text-transform: uppercase;
 }
 #crosspost-root .crosspost-part-title {
-  color: ${accent};
+  color: ${o.partTitleColor ?? accent};
   display: block;
-  font-size: 1.375em;
+  font-size: ${o.partTitleFontSize ?? "1.375em"};
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: ${o.partTitleLetterSpacing ?? "0.08em"};
 }
 #crosspost-root h2 {
   background: ${softBg};
   border: 1px solid ${softBorder};
   border-left: 4px solid ${accent};
-  color: ${accent};
-  font-size: 1.125em;
+  color: ${o.h2Color ?? accent};
+  font-size: ${o.h2FontSize ?? "1.125em"};${o.h2LetterSpacing ? `\n  letter-spacing: ${o.h2LetterSpacing};` : ""}
   font-weight: 700;
   line-height: 1.55;
-  margin: 2.1em 0 1em;
-  padding: 9px 13px;
+  margin: ${o.h2Margin ?? "2.1em 0 1em"};
+  padding: ${o.h2Padding ?? "9px 13px"};
   text-align: left;
 }
 #crosspost-root .crosspost-section-number {
-  color: ${label};
-  display: inline-block;
+  color: ${o.sectionNumberColor ?? label};
+  display: inline-block;${o.sectionNumberFontFamily ? `\n  font-family: ${o.sectionNumberFontFamily};` : ""}
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -113,20 +138,20 @@ function headingCss(
   vertical-align: 2px;
 }
 #crosspost-root h3 {
-  background: ${softBg};
-  border: 1px solid ${softBorder};
+  background: ${o.h3Background ?? softBg};
+  border: 1px solid ${o.h3Border ?? softBorder};
   border-left: 4px solid ${accent};
-  color: ${accent};
-  font-size: 1.05em;
+  color: ${o.h3Color ?? accent};
+  font-size: ${o.h3FontSize ?? "1.05em"};${o.h3LetterSpacing ? `\n  letter-spacing: ${o.h3LetterSpacing};` : ""}
   font-weight: 700;
   line-height: 1.65;
-  margin: 1.6em 0 0.9em;
-  padding: 8px 13px;
+  margin: ${o.h3Margin ?? "1.6em 0 0.9em"};
+  padding: ${o.h3Padding ?? "8px 13px"};
   text-align: left;
 }
 #crosspost-root .crosspost-subsection-marker {
   color: ${accent};
-  display: inline-block;
+  display: inline-block;${o.markerFontFamily ? `\n  font-family: ${o.markerFontFamily};` : ""}
   margin-right: 7px;
 }
 `;
@@ -215,73 +240,28 @@ ${BASE_CSS}
   text-align: justify;
   word-break: normal;
 }
-#crosspost-root h1 {
-  font-weight: 700;
-  line-height: 1.45;
-  margin: 3.4em 0 1.55em;
-  padding: 0;
-  text-align: center;
-}
-#crosspost-root h1:first-child { margin-top: 0.9em; }
-#crosspost-root .crosspost-part-label {
-  color: #7b8b95;
-  display: block;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.3em;
-  margin: 0 0 7px;
-  text-transform: uppercase;
-}
-#crosspost-root .crosspost-part-title {
-  color: #17364a;
-  display: block;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-}
-#crosspost-root h2 {
-  background: #f7f9fa;
-  border: 1px solid #e2e8ec;
-  border-left: 4px solid #315b71;
-  color: #18384b;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.055em;
-  line-height: 1.55;
-  margin: 2.25em 0 1.05em;
-  padding: 10px 13px 9px;
-  text-align: left;
-}
-#crosspost-root .crosspost-section-number {
-  color: #718793;
-  display: inline-block;
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  margin-right: 9px;
-  vertical-align: 2px;
-}
-#crosspost-root h3 {
-  background: #f4f7f9;
-  border: 1px solid #ced9df;
-  border-left: 4px solid #315b71;
-  color: #17384b;
-  font-size: 16.5px;
-  font-weight: 700;
-  letter-spacing: 0.035em;
-  line-height: 1.65;
-  margin: 1.8em 0 1em;
-  padding: 12px 14px;
-  text-align: left;
-}
-#crosspost-root .crosspost-subsection-marker {
-  color: #315b71;
-  display: inline-block;
-  font-family: Arial, sans-serif;
-  margin-right: 7px;
-}
+${headingCss("#315b71", "#f7f9fa", "#e2e8ec", "#7b8b95", {
+  h1FirstChildMarginTop: "0.9em",
+  h1Margin: "3.4em 0 1.55em",
+  h2Color: "#18384b",
+  h2FontSize: "18px",
+  h2LetterSpacing: "0.055em",
+  h2Margin: "2.25em 0 1.05em",
+  h2Padding: "10px 13px 9px",
+  h3Background: "#f4f7f9",
+  h3Border: "#ced9df",
+  h3Color: "#17384b",
+  h3FontSize: "16.5px",
+  h3LetterSpacing: "0.035em",
+  h3Margin: "1.8em 0 1em",
+  h3Padding: "12px 14px",
+  markerFontFamily: "Arial, sans-serif",
+  partTitleColor: "#17364a",
+  partTitleFontSize: "22px",
+  partTitleLetterSpacing: "0.1em",
+  sectionNumberColor: "#718793",
+  sectionNumberFontFamily: 'Georgia, "Times New Roman", serif'
+})}
 #crosspost-root p {
   color: #2b3339;
   font-size: 16px;
@@ -1434,16 +1414,8 @@ ${headingCss("#5c3a21", "#faf3e0", "#e0caa2", "#8b6914")}
 `
 };
 
-const themeCache: Partial<Record<ThemeId, string>> = {};
-
 export function getThemeCss(theme: ThemeId): string {
-  const cached = themeCache[theme];
-  if (cached === undefined) {
-    const css = THEMES[theme];
-    themeCache[theme] = css;
-    return css;
-  }
-  return cached;
+  return THEMES[theme];
 }
 
 export const themeIds = Object.keys(THEMES) as ThemeId[];

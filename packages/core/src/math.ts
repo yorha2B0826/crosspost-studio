@@ -39,6 +39,12 @@ export function renderMathSvg(
   if (!match) {
     throw new Error("MathJax did not produce an SVG element.");
   }
+  // Invalid LaTeX must not silently produce a red error SVG. Undefined
+  // control sequences render as red-filled text without an merror node,
+  // so the red fallback is part of the check.
+  if (/data-mjx-error|data-mml-node="merror"|fill="red"|stroke="red"/.test(match[0])) {
+    throw new Error("MathJax could not render the formula.");
+  }
   const markupWithColor =
     color === "inherit" ? match[0] : match[0].replace(/currentColor/g, "#1f2328");
   const openingTag = markupWithColor.slice(0, markupWithColor.indexOf(">"));

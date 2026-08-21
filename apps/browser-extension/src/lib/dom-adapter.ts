@@ -147,6 +147,24 @@ export async function applyDraftToVisibleEditor(
     saveEvidenceBaseline,
     definition.deferSaveEvidenceToReload ? 3_000 : 20_000
   ))) {
+    if (definition.acceptSaveActionWithoutEvidence && definition.saveActionText) {
+      const completedEditor = resolveEditor() ?? editor;
+      const bodyText = isTextArea(completedEditor)
+        ? markdownEditorText(completedEditor)
+        : editableText(completedEditor);
+      return {
+        bodyText: isTextArea(completedEditor)
+          ? normalizedMarkdownDocument(bodyText)
+          : normalizedRichText(bodyText),
+        draftUrl: location.href,
+        imageCount: isTextArea(completedEditor)
+          ? (bodyText.match(/!\[[^\]]*\]\(https?:\/\//g) ?? []).length
+          : completedEditor.querySelectorAll("img").length,
+        message:
+          "The visible draft action was invoked after the editor content was verified.",
+        saved: true
+      };
+    }
     if (definition.deferSaveEvidenceToReload) {
       const completedEditor = resolveEditor() ?? editor;
       const markdownReadback =

@@ -233,6 +233,30 @@ describe("platform draft URLs", () => {
   ] as const)("rejects an unrelated %s route on the real host", (platform, url) => {
     expect(isExpectedDraftUrl(platform, url)).toBe(false);
   });
+  it.each([
+    ["csdn", "https://editor.csdn.net/mdx?articleId=123"],
+    ["csdn", "https://editor.csdn.net/markdown-guide"],
+    ["zhihu", "https://www.zhihu.com/writeup"],
+    ["zhihu", "https://www.zhihu.com/question/1/rewrite"],
+    ["zhihu", "https://zhuanlan.zhihu.com/writelater"]
+  ] as const)(
+    "rejects a %s route that merely contains the editor path fragment",
+    (platform, url) => {
+      expect(isExpectedDraftUrl(platform, url)).toBe(false);
+    }
+  );
+
+  it.each([
+    ["csdn", "https://editor.csdn.net/md?articleId=123"],
+    ["csdn", "https://editor.csdn.net/md/?articleId=123"],
+    ["zhihu", "https://www.zhihu.com/write"],
+    ["zhihu", "https://www.zhihu.com/write?column=1"],
+    ["zhihu", "https://zhuanlan.zhihu.com/write"],
+    ["zhihu", "https://zhuanlan.zhihu.com/write/new"]
+  ] as const)("accepts a legitimate %s editor route", (platform, url) => {
+    expect(isExpectedDraftUrl(platform, url)).toBe(true);
+  });
+
 
   it.each([
     ["segmentfault", "https://segmentfault.com/user/login"],

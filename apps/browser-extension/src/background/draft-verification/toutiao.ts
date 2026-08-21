@@ -10,14 +10,18 @@ export async function verifyToutiaoDraftContent(
   tabId: number,
   expectedTitle: string,
   expectedHtml: string,
-  expectedImageCount: number
+  expectedImageCount: number,
+  isCancelled?: () => boolean
 ): Promise<{ diagnostic: string; verified: boolean }> {
   // Toutiao autosaves without exposing a stable visible status in every editor
   // revision. Let its debounce finish, then require an exact server readback.
-  await pause(10_000);
+  await pause(10_000, isCancelled);
   await reloadTabAndWait(tabId);
   let diagnostic = "editor-not-ready";
   for (let attempt = 0; attempt < 80; attempt += 1) {
+    if (isCancelled?.()) {
+      return { diagnostic, verified: false };
+    }
     const [injection] = await browser.scripting.executeScript({
       args: [expectedTitle, expectedHtml, expectedImageCount],
       func: (
@@ -95,14 +99,15 @@ export async function verifyToutiaoDraftContent(
         return injection.result;
       }
     }
-    await pause(250);
+    await pause(250, isCancelled);
   }
   return { diagnostic, verified: false };
 }
 
 export async function resolveToutiaoDraftUrl(
   tabId: number,
-  expectedTitle: string
+  expectedTitle: string,
+  isCancelled?: () => boolean
 ): Promise<string | undefined> {
   const knownTabIds = new Set(
     (await browser.tabs.query({ url: PLATFORM_ORIGINS.toutiao })).flatMap(
@@ -116,6 +121,9 @@ export async function resolveToutiaoDraftUrl(
 
   let editClicked = false;
   for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (isCancelled?.()) {
+      return undefined;
+    }
     const [injection] = await browser.scripting.executeScript({
       args: [expectedTitle],
       func: (title: string): boolean => {
@@ -153,13 +161,16 @@ export async function resolveToutiaoDraftUrl(
       editClicked = true;
       break;
     }
-    await pause(250);
+    await pause(250, isCancelled);
   }
   if (!editClicked) {
     return undefined;
   }
 
   for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (isCancelled?.()) {
+      return undefined;
+    }
     const candidateTabs = await browser.tabs.query({
       url: PLATFORM_ORIGINS.toutiao
     });
@@ -185,7 +196,7 @@ export async function resolveToutiaoDraftUrl(
       }
       return stableDraftUrl;
     }
-    await pause(250);
+    await pause(250, isCancelled);
   }
   return undefined;
 }

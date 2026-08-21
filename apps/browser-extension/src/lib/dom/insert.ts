@@ -27,6 +27,7 @@ import {
 import { queryFirst, waitFor } from "./query";
 import {
   htmlToPlainText,
+  richEditorContainsFormulaData,
   richEditorContainsHtmlText,
   richEditorReadbackMismatch
 } from "./richtext";
@@ -62,8 +63,8 @@ export async function insertIntoEditor(
       const applyTextareaMarkdown = (
         currentEditor: HTMLTextAreaElement,
         markdown: string
-      ): Promise<void> =>
-        setTextareaMarkdown(
+      ): Promise<boolean> =>
+          setTextareaMarkdown(
           payload.platform,
           currentEditor,
           markdown,
@@ -202,6 +203,33 @@ export async function insertIntoEditor(
       "The article contains an invalid inline image that could not be prepared for upload."
     );
   }
+  if (payload.platform === "zhihu" && runtime?.setZhihuRichText) {
+    await runtime.setZhihuRichText(prepared.html);
+    for (const image of prepared.images) {
+      await pasteImageAtToken(
+        resolveEditor,
+        image,
+        definition.richImageDropFallback
+      );
+    }
+    const persistedEditor = resolveEditor();
+    if (
+      !persistedEditor ||
+      !richEditorContainsHtmlText(persistedEditor, payload.html) ||
+      !richEditorContainsFormulaData(persistedEditor, payload.html) ||
+      prepared.images.some((image) =>
+        persistedEditor.textContent?.includes(image.token)
+      ) ||
+      persistedEditor.querySelectorAll("img").length < prepared.images.length
+    ) {
+      throw new Error(
+        persistedEditor
+          ? "Zhihu did not preserve every article block, native formula, and uploaded image."
+          : "Zhihu replaced the editor before the article could be verified."
+      );
+    }
+    return;
+  }
   const replaceExistingByPaste = Boolean(
     definition.replaceExistingRichContentByPaste && hasEditorContent(editor)
   );
@@ -214,10 +242,15 @@ export async function insertIntoEditor(
   selectEditorContents(currentEditor);
   const editorFocused = await waitFor(() => {
     const liveEditor = resolveEditor();
+    const activeElement = liveEditor?.ownerDocument.activeElement;
     return Boolean(
       liveEditor &&
-      liveEditor.ownerDocument.activeElement === liveEditor &&
-      selectionIsInside(liveEditor)
+      selectionIsInside(liveEditor) &&
+      (activeElement === liveEditor ||
+        (activeElement !== null &&
+          activeElement !== undefined &&
+          liveEditor.contains(activeElement)) ||
+        replaceExistingByPaste)
     );
   }, 1_000);
   if (!editorFocused) {
@@ -269,13 +302,46 @@ export async function insertIntoEditor(
           );
         }
         return true;
-      }, 5_000));
+      }, definition.richPasteApplyTimeoutMs ?? 5_000));
   }
   currentEditor = resolveEditor() ?? currentEditor;
   if (replaceExistingByPaste && !pasteApplied) {
     throw new Error(
       "The rich-text editor did not confirm replacement of the previous draft."
     );
+  }
+  if (
+    accepted &&
+    !pasteApplied &&
+    definition.retryUnappliedRichPasteWithDirectInsert
+  ) {
+    currentEditor = await clearEditor(resolveEditor);
+    focusEditor(currentEditor);
+    selectEditorContents(currentEditor);
+    const execCommand = Reflect.get(
+      currentEditor.ownerDocument,
+      "execCommand"
+    ) as ((command: string, showUi: boolean, value?: string) => boolean) | undefined;
+    const inserted =
+      typeof execCommand === "function" &&
+      execCommand.call(
+        currentEditor.ownerDocument,
+        "insertHTML",
+        false,
+        prepared.html
+      );
+    if (!inserted) {
+      replaceEditorHtml(currentEditor, prepared.html);
+    }
+    dispatchEditorInput(currentEditor, "insertFromPaste");
+    pasteApplied = await waitFor(() => {
+      const liveEditor = resolveEditor();
+      return Boolean(
+        liveEditor &&
+          hasEditorContent(liveEditor) &&
+          richEditorContainsHtmlText(liveEditor, prepared.html)
+      );
+    }, 1_500);
   }
   if (pasteApplied) {
     for (const image of prepared.images) {

@@ -115,4 +115,48 @@ describe("CSS sanitizer", () => {
     expect(result).toContain("h2");
     expect(result).toContain("h3");
   });
+
+  it("blocks string URLs smuggled through image-set and src()", () => {
+    const css = [
+      "#crosspost-root p { background: image-set(\"https://evil.example/a.png\") 1x; }",
+      "#crosspost-root p { background: -webkit-image-set(\"https://evil.example/b.png\") 1x; }",
+      "#crosspost-root p { background: src(\"https://evil.example/c.png\"); }"
+    ].join("\n");
+    const result = sanitizeCustomCss(css);
+    expect(result).not.toContain("evil.example");
+    expect(result).toBe("");
+  });
+
+  it("keeps surviving rules when the stylesheet contains a stray semicolon", () => {
+    const warnings: string[] = [];
+    const css =
+      "#crosspost-root p { color: #111; }\n" +
+      ";\n" +
+      "#crosspost-root h1 { font-size: 2em; }";
+    const result = sanitizeCustomCss(css, (warning) => warnings.push(warning));
+    expect(result).toContain("color: #111");
+    expect(result).toContain("font-size: 2em");
+    expect(warnings).toHaveLength(1);
+  });
+
+  it("recovers from a stray closing brace between rules", () => {
+    const warnings: string[] = [];
+    const css =
+      "#crosspost-root p { color: #111; }\n" +
+      "}\n" +
+      "#crosspost-root h1 { font-size: 2em; }";
+    const result = sanitizeCustomCss(css, (warning) => warnings.push(warning));
+    expect(result).toContain("color: #111");
+    expect(result).toContain("font-size: 2em");
+    expect(warnings).toHaveLength(1);
+  });
+
+  it("reports a warning when the whole stylesheet is unparseable", () => {
+    const warnings: string[] = [];
+    const result = sanitizeCustomCss("no braces at all", (warning) =>
+      warnings.push(warning)
+    );
+    expect(result).toBe("");
+    expect(warnings).toHaveLength(1);
+  });
 });

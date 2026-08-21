@@ -1,5 +1,21 @@
 import type { FormulaRasterizerResult } from "./types.js";
 
+// Caps the rasterized canvas so an oversized SVG cannot silently produce a
+// blank PNG (browsers cap canvas dimensions).
+export const MAX_RASTER_SIDE = 8_192;
+
+export function rasterScale(
+  naturalWidth: number,
+  naturalHeight: number,
+  requestedScale: number
+): number {
+  const maxScale = Math.min(
+    MAX_RASTER_SIDE / naturalWidth,
+    MAX_RASTER_SIDE / naturalHeight
+  );
+  return Math.min(requestedScale, maxScale);
+}
+
 export async function browserSvgToPng(
   svgMarkup: string,
   display: boolean
@@ -16,9 +32,9 @@ export async function browserSvgToPng(
     image.src = url;
     await loaded;
 
-    const scale = display ? 2 : 3;
     const naturalWidth = Math.max(1, image.naturalWidth || image.width);
     const naturalHeight = Math.max(1, image.naturalHeight || image.height);
+    const scale = rasterScale(naturalWidth, naturalHeight, display ? 2 : 3);
     const canvas = image.ownerDocument.createElementNS(
       "http://www.w3.org/1999/xhtml",
       "canvas"

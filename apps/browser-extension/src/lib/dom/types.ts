@@ -1,4 +1,5 @@
 export interface PlatformDomDefinition {
+  acceptSaveActionWithoutEvidence?: boolean;
   blurAfterInsert?: boolean;
   contentMode: "adaptive" | "markdown" | "rich-html";
   deferSaveEvidenceToReload?: boolean;
@@ -10,6 +11,8 @@ export interface PlatformDomDefinition {
   postInsertSettleMs?: number;
   preferDirectDomInsert?: boolean;
   replaceExistingRichContentByPaste?: boolean;
+  retryUnappliedRichPasteWithDirectInsert?: boolean;
+  richPasteApplyTimeoutMs?: number;
   requireSaveEvidenceAfterAction?: boolean;
   richImageDropFallback?: boolean;
   rewriteMarkdownAfterDialogUploads?: boolean;
@@ -40,7 +43,9 @@ export interface EmbeddedImage {
 
 export interface DomAdapterRuntime {
   setCsdnMarkdown?: (markdown: string) => Promise<string | undefined>;
+  setJuejinMarkdown?: (markdown: string) => Promise<string | undefined>;
   setSegmentFaultMarkdown?: (markdown: string) => Promise<string | undefined>;
+  setZhihuRichText?: (html: string) => Promise<string | undefined>;
   uploadBilibiliImage?: (file: File, token: string) => Promise<string | undefined>;
 }
 

@@ -1,13 +1,16 @@
 import type {
   ApplyDraftMessage,
-  ApplyDraftResult
+  ApplyDraftResult,
+  ContentPingResponse
 } from "../lib/messages";
+import { BROWSER_RUNTIME_REVISION } from "@crosspost/protocol/runtime";
 import type { PublishJob } from "@crosspost/protocol";
 import { browser } from "wxt/browser";
 import {
   areEquivalentDraftUrls,
   getDraftRedirectUrl,
   isExpectedDraftUrl,
+  isStableDraftUrl,
   NEW_DRAFT_URLS,
   PLATFORM_ORIGINS,
   selectPreferredDraftTab
@@ -124,6 +127,11 @@ export async function reloadTabAndWait(
 
 export async function openDraftTab(job: PublishJob): Promise<number> {
   const existingUrl = job.existingBinding?.draftUrl;
+  const existingBindingNeedsVisibleTab = Boolean(
+    existingUrl &&
+      job.target === "baijiahao" &&
+      !isStableDraftUrl(job.target, existingUrl)
+  );
   const targetUrl =
     existingUrl && isExpectedDraftUrl(job.target, existingUrl)
       ? existingUrl
@@ -141,6 +149,22 @@ export async function openDraftTab(job: PublishJob): Promise<number> {
         )
       )
     : undefined;
+  if (existingBindingNeedsVisibleTab && !existingTab) {
+    throw new Error(
+      "Open the previously saved Baijiahao draft in Chrome before retrying. Its generic editor URL cannot be reopened safely without creating a duplicate draft."
+    );
+  }
+  const reusableNewDraftTab =
+    existingUrl && !existingTab
+      ? selectPreferredDraftTab(
+          matchingTabs.filter(
+            (candidate) =>
+              candidate.url !== undefined &&
+              isExpectedDraftUrl(job.target, candidate.url) &&
+              !isStableDraftUrl(job.target, candidate.url)
+          )
+        )
+      : undefined;
   const activeDraftTab = existingUrl
     ? undefined
     : selectPreferredDraftTab(
@@ -152,6 +176,7 @@ export async function openDraftTab(job: PublishJob): Promise<number> {
       );
   const tab =
     existingTab ??
+    reusableNewDraftTab ??
     activeDraftTab ??
     (await browser.tabs.create({
       active: true,
@@ -198,17 +223,44 @@ export async function openDraftTab(job: PublishJob): Promise<number> {
   return tabId;
 }
 
-async function injectRunner(tabId: number): Promise<void> {
+function isCurrentRunner(value: unknown): value is ContentPingResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Reflect.get(value, "ready") === true &&
+    Reflect.get(value, "runtimeRevision") === BROWSER_RUNTIME_REVISION
+  );
+}
+
+async function pingRunner(tabId: number): Promise<unknown> {
   try {
-    await browser.tabs.sendMessage(tabId, { type: "crosspost:ping" });
-    return;
+    return await browser.tabs.sendMessage(tabId, { type: "crosspost:ping" });
   } catch {
-    // The runtime content script has not been injected into this tab yet.
+    return undefined;
   }
+}
+
+async function injectCurrentRunner(tabId: number): Promise<void> {
   await browser.scripting.executeScript({
     files: ["/content-scripts/platform.js"],
     target: { tabId }
   });
+  if (!isCurrentRunner(await pingRunner(tabId))) {
+    throw new Error("The current platform content script did not become ready.");
+  }
+}
+
+export async function ensureCurrentRunner(tabId: number): Promise<void> {
+  const response = await pingRunner(tabId);
+  if (isCurrentRunner(response)) {
+    return;
+  }
+  if (response !== undefined) {
+    // An older content script is still attached to this document. Reloading
+    // removes its listeners before the current packaged runner is injected.
+    await reloadTabAndWait(tabId);
+  }
+  await injectCurrentRunner(tabId);
 }
 
 export async function applyToTab(
@@ -216,7 +268,7 @@ export async function applyToTab(
   job: PublishJob,
   content: { html: string; markdown: string }
 ): Promise<ApplyDraftResult> {
-  await injectRunner(tabId);
+  await ensureCurrentRunner(tabId);
   const message: ApplyDraftMessage = {
     payload: {
       html: content.html,
@@ -230,8 +282,21 @@ export async function applyToTab(
   return browser.tabs.sendMessage(tabId, message);
 }
 
-export async function pause(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => {
-    self.setTimeout(resolve, milliseconds);
-  });
+const PAUSE_SLICE_MS = 250;
+
+export async function pause(
+  milliseconds: number,
+  isCancelled?: () => boolean
+): Promise<void> {
+  let remaining = milliseconds;
+  while (remaining > 0) {
+    if (isCancelled?.()) {
+      return;
+    }
+    const slice = Math.min(PAUSE_SLICE_MS, remaining);
+    await new Promise<void>((resolve) => {
+      self.setTimeout(resolve, slice);
+    });
+    remaining -= slice;
+  }
 }

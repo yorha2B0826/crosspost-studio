@@ -135,32 +135,42 @@ export async function waitFor(
   if (predicate()) {
     return true;
   }
-  return new Promise((resolve) => {
-    const finish = (result: boolean): void => {
-      window.clearInterval(poll);
-      window.clearTimeout(timeout);
-      observer.disconnect();
-      resolve(result);
-    };
-    const observer = new MutationObserver(() => {
-      if (!predicate()) {
-        return;
-      }
-      finish(true);
-    });
-    const timeout = window.setTimeout(() => {
-      finish(predicate());
-    }, timeoutMs);
-    const poll = window.setInterval(() => {
-      if (predicate()) {
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  let finished = false;
+  let evaluationPending = false;
+  const finish = (result: boolean): void => {
+    finished = true;
+    window.clearInterval(poll);
+    window.clearTimeout(timeout);
+    observer.disconnect();
+    resolve(result);
+  };
+  // Coalesce mutation bursts into one microtask so a stream of mutations
+  // costs one full-tree predicate evaluation instead of one per record.
+  const scheduleEvaluation = (): void => {
+    if (finished || evaluationPending) {
+      return;
+    }
+    evaluationPending = true;
+    queueMicrotask(() => {
+      evaluationPending = false;
+      if (!finished && predicate()) {
         finish(true);
       }
-    }, 50);
-    observer.observe(document.body, {
-      attributes: true,
-      characterData: true,
-      childList: true,
-      subtree: true
     });
+  };
+  const observer = new MutationObserver(scheduleEvaluation);
+  const timeout = window.setTimeout(() => {
+    finish(predicate());
+  }, timeoutMs);
+  // The observer covers childList/attributes/characterData; the interval is
+  // only a relaxed safety net for changes MutationObserver cannot see.
+  const poll = window.setInterval(scheduleEvaluation, 250);
+  observer.observe(document.body, {
+    attributes: true,
+    characterData: true,
+    childList: true,
+    subtree: true
   });
+  return promise;
 }

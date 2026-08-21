@@ -115,4 +115,20 @@ $$
         .join("\n")
     );
   });
+
+  it("keeps the academic theme's signature heading declarations after the factory migration", async () => {
+    const rendered = await renderPublication(
+      "# 标题\n\n## 小节\n\n### 子节\n",
+      {
+        metadata: { title: "学术主题" },
+        platform: "wechat",
+        theme: "academic"
+      }
+    );
+    const html = rendered.artifact.html;
+    expect(html).toContain("border-left: 4px solid #315b71");
+    expect(html).toContain("letter-spacing: 0.055em");
+    expect(html).toContain("color: #17364a");
+    expect(html).toContain("font-size: 22px");
+  });
 });

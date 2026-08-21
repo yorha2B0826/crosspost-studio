@@ -13,6 +13,21 @@ describe("Obsidian Markdown preprocessor", () => {
     expect(result.markdown).toContain("![My Photo](obsidian-asset:photo.png)");
   });
 
+  it("treats a pure-numeric label as a width hint instead of alt text", () => {
+    const result = preprocessObsidianMarkdown("![[photo.png|600]]");
+    expect(result.markdown).toBe(
+      "![photo.png](obsidian-asset:photo.png#w=600)"
+    );
+    expect(result.diagnostics).toHaveLength(0);
+  });
+
+  it("keeps non-numeric labels as alt text", () => {
+    const result = preprocessObsidianMarkdown("![[photo.png|480px]]");
+    expect(result.markdown).toBe(
+      "![480px](obsidian-asset:photo.png)"
+    );
+  });
+
   it("supports multiple image formats", () => {
     const formats = ["png", "jpg", "jpeg", "gif", "svg", "webp", "avif"];
     for (const ext of formats) {

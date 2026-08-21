@@ -30,7 +30,8 @@ import {
   BridgeServer
 } from "./bridge-server.js";
 import type {
-  BridgeProgress
+  BridgeProgress,
+  BridgeRuntimeStatus
 } from "./bridge-server.js";
 import {
   getWeChatCopyBlockingDiagnostics,
@@ -155,6 +156,9 @@ export default class CrosspostStudioPlugin extends Plugin {
 
   private bridge?: BridgeServer;
   private readonly bridgeProgressListeners = new Set<(progress: BridgeProgress) => void>();
+  private readonly bridgeRuntimeListeners = new Set<
+    (status: BridgeRuntimeStatus) => void
+  >();
   private readonly weChatClient = new WeChatClient();
   get weChat(): WeChatClient {
     return this.weChatClient;
@@ -320,6 +324,23 @@ export default class CrosspostStudioPlugin extends Plugin {
     };
   }
 
+  onBridgeRuntimeStatus(
+    listener: (status: BridgeRuntimeStatus) => void
+  ): () => void {
+    this.bridgeRuntimeListeners.add(listener);
+    listener(this.getBridgeRuntimeStatus());
+    return () => {
+      this.bridgeRuntimeListeners.delete(listener);
+    };
+  }
+
+  getBridgeRuntimeStatus(): BridgeRuntimeStatus {
+    return this.bridge?.getRuntimeStatus() ?? {
+      compatible: false,
+      connected: false
+    };
+  }
+
   getPublicationStates(file: TFile): StoredPublicationStates {
     return this.settings.publicationStates[file.path] ?? {};
   }
@@ -367,12 +388,7 @@ export default class CrosspostStudioPlugin extends Plugin {
     file: TFile,
     theme: ThemeId
   ): Promise<WeChatDraftRoundTripResult> {
-    const appSecret = this.app.secretStorage.getSecret(
-      this.settings.wechatAppSecretId
-    );
-    if (!this.settings.wechatAppId || !appSecret) {
-      throw new Error("请先配置微信公众号 AppID 和 AppSecret。");
-    }
+    const appSecret = this.assertWeChatCredentials();
     const snapshot = await this.createSnapshot(file);
     const prepared = await this.renderSnapshot(snapshot, "wechat", theme);
     const blockingBeforeLookup = prepared.publication.artifact.diagnostics.filter(
@@ -428,50 +444,21 @@ export default class CrosspostStudioPlugin extends Plugin {
       }
     });
     await writeDraftBinding(this.app, file, binding);
-    const returned = await this.weChatClient.getDraftArticle(
-      this.settings.wechatAppId,
+    return this.verifyWeChatRoundTrip(
+      file,
       appSecret,
-      binding.draftId!,
-      title
+      prepared.publication.artifact.html,
+      binding,
+      title,
+      "updated"
     );
-    const expectedFormulaCount = (
-      prepared.publication.artifact.html.match(/data-crosspost-formula=/g) ?? []
-    ).length;
-    const persistedFormulaCount = (
-      returned.content.match(/data-crosspost-formula=/g) ?? []
-    ).length;
-    const result: WeChatDraftRoundTripResult = {
-      academicThemePreserved: hasAcademicThemeMarkup(returned.content),
-      currentColorPreserved: returned.content.includes("currentColor"),
-      expectedFormulaCount,
-      mediaId: binding.draftId!,
-      persistedFormulaCount,
-      svgPreserved: returned.content.includes("<svg"),
-      title
-    };
-    const formulaMarkupPreserved =
-      expectedFormulaCount > 0 &&
-      result.svgPreserved &&
-      result.currentColorPreserved &&
-      persistedFormulaCount === expectedFormulaCount;
-    const message =
-      result.academicThemePreserved && formulaMarkupPreserved
-        ? "Draft updated; academic theme and formula markup verified through WeChat draft/get."
-        : "Draft updated, but WeChat did not preserve all theme or inline formula markup.";
-    await this.recordPublicationState(file, "wechat", "draft-saved", message);
-    return result;
   }
 
   async createAndVerifyNewWeChatDraft(
     file: TFile,
     theme: ThemeId
   ): Promise<WeChatDraftRoundTripResult> {
-    const appSecret = this.app.secretStorage.getSecret(
-      this.settings.wechatAppSecretId
-    );
-    if (!this.settings.wechatAppId || !appSecret) {
-      throw new Error("请先配置微信公众号 AppID 和 AppSecret。");
-    }
+    const appSecret = this.assertWeChatCredentials();
     const snapshot = await this.createSnapshot(file);
     const prepared = await this.renderSnapshot(snapshot, "wechat", theme);
     const inferredCoverAssetId =
@@ -507,7 +494,34 @@ export default class CrosspostStudioPlugin extends Plugin {
       assets: prepared.publication.assets
     });
     await writeDraftBinding(this.app, file, binding);
-    const title = artifact.metadata.title;
+    return this.verifyWeChatRoundTrip(
+      file,
+      appSecret,
+      artifact.html,
+      binding,
+      artifact.metadata.title,
+      "created"
+    );
+  }
+
+  private assertWeChatCredentials(): string {
+    const appSecret = this.app.secretStorage.getSecret(
+      this.settings.wechatAppSecretId
+    );
+    if (!this.settings.wechatAppId || !appSecret) {
+      throw new Error("请先配置微信公众号 AppID 和 AppSecret。");
+    }
+    return appSecret;
+  }
+
+  private async verifyWeChatRoundTrip(
+    file: TFile,
+    appSecret: string,
+    html: string,
+    binding: DraftBinding,
+    title: string,
+    action: "created" | "updated"
+  ): Promise<WeChatDraftRoundTripResult> {
     const returned = await this.weChatClient.getDraftArticle(
       this.settings.wechatAppId,
       appSecret,
@@ -515,7 +529,7 @@ export default class CrosspostStudioPlugin extends Plugin {
       title
     );
     const expectedFormulaCount = (
-      artifact.html.match(/data-crosspost-formula=/g) ?? []
+      html.match(/data-crosspost-formula=/g) ?? []
     ).length;
     const persistedFormulaCount = (
       returned.content.match(/data-crosspost-formula=/g) ?? []
@@ -536,8 +550,8 @@ export default class CrosspostStudioPlugin extends Plugin {
       persistedFormulaCount === expectedFormulaCount;
     const message =
       result.academicThemePreserved && formulaMarkupPreserved
-        ? "Draft created; academic theme and formula markup verified through WeChat draft/get."
-        : "Draft created, but WeChat did not preserve all theme or inline formula markup.";
+        ? `Draft ${action}; academic theme and formula markup verified through WeChat draft/get.`
+        : `Draft ${action}, but WeChat did not preserve all theme or inline formula markup.`;
     await this.recordPublicationState(file, "wechat", "draft-saved", message);
     return result;
   }
@@ -667,6 +681,22 @@ export default class CrosspostStudioPlugin extends Plugin {
     await this.saveSettings();
   }
 
+  async confirmUnknownStateSaved(
+    file: TFile,
+    platform: PlatformId
+  ): Promise<void> {
+    const record = this.settings.publicationStates[file.path]?.[platform];
+    if (!record || record.state !== "unknown") {
+      return;
+    }
+    await this.recordPublicationState(
+      file,
+      platform,
+      "draft-saved",
+      "Draft saved successfully and confirmed by the user in the visible editor."
+    );
+  }
+
   private async recordPublicationState(
     file: TFile,
     platform: PlatformId,
@@ -702,6 +732,14 @@ export default class CrosspostStudioPlugin extends Plugin {
     }
   }
 
+  async restartBridge(): Promise<void> {
+    if (this.bridge) {
+      await this.bridge.stop();
+      this.bridge = undefined;
+    }
+    await this.startBridge();
+  }
+
   private async startBridge(): Promise<void> {
     const pairingSecret = this.app.secretStorage.getSecret(this.settings.pairingSecretId);
     if (!pairingSecret) {
@@ -714,6 +752,11 @@ export default class CrosspostStudioPlugin extends Plugin {
       (progress) => {
         for (const listener of this.bridgeProgressListeners) {
           listener(progress);
+        }
+      },
+      (status) => {
+        for (const listener of this.bridgeRuntimeListeners) {
+          listener(status);
         }
       }
     );

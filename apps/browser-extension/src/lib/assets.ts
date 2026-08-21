@@ -19,12 +19,20 @@ export async function hydrateJobAssets(
   let markdown = job.artifact.markdown;
 
   for (const descriptor of job.artifact.assets) {
-    const response = await self.fetch(`${job.assetBaseUrl}/${descriptor.id}`, {
-      cache: "no-store",
-      headers: {
-        Authorization: `Bearer ${job.assetToken}`
-      }
-    });
+    let response: Response;
+    try {
+      response = await self.fetch(`${job.assetBaseUrl}/${descriptor.id}`, {
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${job.assetToken}`
+        },
+        signal: AbortSignal.timeout(30_000)
+      });
+    } catch (error) {
+      throw new Error(
+        `Asset ${descriptor.name} for ${job.target} could not be loaded from the Obsidian bridge within 30s (${error instanceof Error ? error.message : String(error)}).`
+      );
+    }
     if (!response.ok) {
       throw new Error(`Asset ${descriptor.name} could not be loaded (${response.status}).`);
     }

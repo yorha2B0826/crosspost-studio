@@ -144,7 +144,10 @@ function readBlock(
   return undefined;
 }
 
-function parseRules(css: string): CssRule[] | undefined {
+function parseRules(
+  css: string,
+  onWarning?: (warning: string) => void
+): CssRule[] | undefined {
   const rules: CssRule[] = [];
   let index = 0;
   while (index < css.length) {
@@ -173,8 +176,17 @@ function parseRules(css: string): CssRule[] | undefined {
     }
 
     const openBrace = findBoundary(css, index, new Set(["{", ";", "}"]));
-    if (openBrace < 0 || css[openBrace] !== "{") {
+    if (openBrace < 0) {
       return undefined;
+    }
+    if (css[openBrace] !== "{") {
+      // Stray ";" or "}": drop only the broken fragment and resume parsing
+      // at the next rule instead of discarding the whole stylesheet.
+      onWarning?.(
+        `Skipped malformed CSS fragment "${css.slice(index, openBrace + 1).trim().slice(0, 60)}".`
+      );
+      index = openBrace + 1;
+      continue;
     }
     const selector = css.slice(index, openBrace).trim();
     const block = readBlock(css, openBrace);
@@ -204,13 +216,18 @@ function splitDeclarations(body: string): string[] {
   return declarations;
 }
 
-export function sanitizeCustomCss(css: string): string {
+export function sanitizeCustomCss(
+  css: string,
+  onWarning?: (warning: string) => void
+): string {
   const withoutComments = stripComments(css);
   if (withoutComments === undefined) {
+    onWarning?.("Custom CSS was ignored because a comment or string is not terminated.");
     return "";
   }
-  const rules = parseRules(withoutComments);
+  const rules = parseRules(withoutComments, onWarning);
   if (!rules) {
+    onWarning?.("Custom CSS was ignored because it could not be parsed.");
     return "";
   }
 
@@ -245,7 +262,7 @@ export function sanitizeCustomCss(css: string): string {
       if (
         !ALLOWED_PROPERTIES.has(property) ||
         !value ||
-        /url\s*\(|expression\s*\(|javascript\s*:|[\\{}@]/i.test(value)
+        /url\s*\(|image-set\s*\(|-webkit-image-set\s*\(|src\s*\(|expression\s*\(|javascript\s*:|[\\{}@]/i.test(value)
       ) {
         continue;
       }

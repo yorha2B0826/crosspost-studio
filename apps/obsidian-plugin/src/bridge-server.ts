@@ -1,5 +1,6 @@
 import type { PublicationAsset } from "@crosspost/core";
 import {
+  BROWSER_RUNTIME_REVISION,
   generateSecretHex,
   MAX_BRIDGE_MESSAGE_BYTES,
   parseBridgeMessage,
@@ -49,6 +50,49 @@ export interface BridgeProgress {
   state: JobState;
 }
 
+export interface BridgeRuntimeStatus {
+  connected: boolean;
+  compatible: boolean;
+  extensionVersion?: string;
+  runtimeRevision?: string;
+}
+
+interface ClientCapabilities {
+  extensionVersion: string;
+  platforms: ReadonlyArray<Exclude<PlatformId, "wechat">>;
+  runtimeRevision: string;
+}
+
+const JUEJIN_RUNTIME_REVISIONS = new Set([
+  "2026-08-21-platform-adapters-6",
+  "2026-08-21-platform-adapters-7"
+]);
+const ZHIHU_RUNTIME_REVISION = "2026-08-21-platform-adapters-8";
+const LEGACY_RUNTIME_REVISION = "2026-08-21-platform-adapters-5";
+const UNVERSIONED_RUNTIME_REVISION = "legacy-unversioned";
+
+function runtimeSupportsTarget(
+  runtimeRevision: string,
+  target: Exclude<PlatformId, "wechat">
+): boolean {
+  if (runtimeRevision === BROWSER_RUNTIME_REVISION) {
+    return true;
+  }
+  if (runtimeRevision === ZHIHU_RUNTIME_REVISION) {
+    return target !== "juejin";
+  }
+  if (JUEJIN_RUNTIME_REVISIONS.has(runtimeRevision)) {
+    return target !== "zhihu";
+  }
+  if (
+    runtimeRevision === LEGACY_RUNTIME_REVISION ||
+    runtimeRevision === UNVERSIONED_RUNTIME_REVISION
+  ) {
+    return target !== "juejin" && target !== "zhihu";
+  }
+  return false;
+}
+
 export interface BridgeEnqueueInput {
   artifact: PublicationArtifact;
   assets: ReadonlyMap<string, PublicationAsset>;
@@ -65,6 +109,7 @@ export class UnknownBridgeDraftStateError extends Error {
 
 export class BridgeServer {
   private readonly clients = new Set<WebSocket>();
+  private readonly clientCapabilities = new Map<WebSocket, ClientCapabilities>();
   private readonly jobs = new Map<string, StoredJob>();
   private readonly pending = new Map<string, PendingJob>();
   private cleanupTimer?: number;
@@ -74,7 +119,8 @@ export class BridgeServer {
   constructor(
     private readonly port: number,
     private readonly pairingSecret: string,
-    private readonly onProgress: (progress: BridgeProgress) => void
+    private readonly onProgress: (progress: BridgeProgress) => void,
+    private readonly onRuntimeStatus: (status: BridgeRuntimeStatus) => void = () => undefined
   ) {
     this.server = createServer((request, response) => {
       this.handleHttp(request, response);
@@ -135,6 +181,8 @@ export class BridgeServer {
       client.close(1_001, "Obsidian plugin stopped");
     }
     this.clients.clear();
+    this.clientCapabilities.clear();
+    this.emitRuntimeStatus();
     for (const [jobId, pending] of this.pending) {
       window.clearTimeout(pending.timeout);
       pending.reject(new Error(`Bridge stopped before job ${jobId} completed.`));
@@ -151,6 +199,24 @@ export class BridgeServer {
     return Array.from(this.clients).some((client) => client.readyState === WebSocket.OPEN);
   }
 
+  getRuntimeStatus(): BridgeRuntimeStatus {
+    const openClients = Array.from(this.clients).filter(
+      (client) => client.readyState === WebSocket.OPEN
+    );
+    const compatible = openClients.find(
+      (client) =>
+        this.clientCapabilities.get(client)?.runtimeRevision === BROWSER_RUNTIME_REVISION
+    );
+    const selected = compatible ?? openClients.find((client) => this.clientCapabilities.has(client));
+    const capabilities = selected ? this.clientCapabilities.get(selected) : undefined;
+    return {
+      connected: openClients.length > 0,
+      compatible: compatible !== undefined,
+      extensionVersion: capabilities?.extensionVersion,
+      runtimeRevision: capabilities?.runtimeRevision
+    };
+  }
+
   getBoundPort(): number {
     const address = this.server.address();
     if (!address || typeof address === "string") {
@@ -161,9 +227,38 @@ export class BridgeServer {
 
   enqueue(input: BridgeEnqueueInput): Promise<DraftBinding> {
     const client = Array.from(this.clients).find(
-      (candidate) => candidate.readyState === WebSocket.OPEN
+      (candidate) => {
+        const capabilities = this.clientCapabilities.get(candidate);
+        return (
+          candidate.readyState === WebSocket.OPEN &&
+          capabilities?.platforms.includes(input.target) === true &&
+          runtimeSupportsTarget(capabilities.runtimeRevision, input.target)
+        );
+      }
     );
     if (!client) {
+      const openCapabilities = Array.from(this.clients)
+        .filter((candidate) => candidate.readyState === WebSocket.OPEN)
+        .map((candidate) => this.clientCapabilities.get(candidate))
+        .filter((capabilities): capabilities is ClientCapabilities =>
+          capabilities !== undefined
+        );
+      if (
+        openCapabilities.some((capabilities) =>
+          capabilities.platforms.includes(input.target)
+        )
+      ) {
+        return Promise.reject(
+          new Error(
+            `The connected Crosspost Studio browser extension is an older runtime for ${input.target}. Reload the unpacked extension before retrying.`
+          )
+        );
+      }
+      if (openCapabilities.length > 0) {
+        return Promise.reject(
+          new Error(`The connected browser extension does not advertise support for ${input.target}.`)
+        );
+      }
       return Promise.reject(
         new Error("The Crosspost Studio browser extension is not connected.")
       );
@@ -237,6 +332,7 @@ export class BridgeServer {
   }
 
   private authenticate(client: WebSocket): void {
+    let authenticated = false;
     const nonce = generateSecretHex();
     client.send(
       JSON.stringify({
@@ -257,28 +353,47 @@ export class BridgeServer {
           throw new Error("Expected a pairing response.");
         }
         const valid = await verifyHmacSha256Hex(this.pairingSecret, nonce, message.proof);
-        client.send(
-          JSON.stringify({
-            accepted: valid,
-            protocolVersion: PROTOCOL_VERSION,
-            reason: valid ? undefined : "Pairing proof was invalid.",
-            type: "pair-result"
-          } satisfies BridgeMessage)
-        );
         if (!valid) {
+          client.send(
+            JSON.stringify({
+              accepted: false,
+              protocolVersion: PROTOCOL_VERSION,
+              reason: "Pairing proof was invalid.",
+              type: "pair-result"
+            } satisfies BridgeMessage)
+          );
           client.close(4_003, "Pairing rejected");
           return;
         }
+        // Re-entry guard: a second pair-response racing the first must not
+        // register the authenticated handlers twice.
+        if (authenticated) {
+          return;
+        }
+        authenticated = true;
         window.clearTimeout(authenticationTimer);
         client.off("message", onAuthenticationMessage);
         this.clients.add(client);
         client.on("message", (messageRaw) => {
-          this.handleClientMessage(rawDataToString(messageRaw));
+          this.handleClientMessage(client, rawDataToString(messageRaw));
         });
         client.on("close", () => {
           this.clients.delete(client);
+          this.clientCapabilities.delete(client);
+          this.emitRuntimeStatus();
           this.failPendingJobsForClient(client);
         });
+        // The extension sends capabilities immediately after receiving this
+        // response. Install the authenticated handler first so that fast
+        // loopback delivery cannot race the handler swap.
+        client.send(
+          JSON.stringify({
+            accepted: true,
+            protocolVersion: PROTOCOL_VERSION,
+            type: "pair-result"
+          } satisfies BridgeMessage)
+        );
+        this.emitRuntimeStatus();
       } catch {
         client.close(4_002, "Invalid pairing message");
       }
@@ -308,14 +423,27 @@ export class BridgeServer {
     }
   }
 
-  private handleClientMessage(raw: string): void {
+  private handleClientMessage(client: WebSocket, raw: string): void {
     let message: BridgeMessage;
     try {
       message = parseBridgeMessage(raw);
     } catch {
       return;
     }
+    if (message.type === "capabilities") {
+      this.clientCapabilities.set(client, {
+        extensionVersion: message.extensionVersion,
+        platforms: message.platforms,
+        runtimeRevision: message.runtimeRevision ?? UNVERSIONED_RUNTIME_REVISION
+      });
+      this.emitRuntimeStatus();
+      return;
+    }
     if (message.type === "job-progress") {
+      const pending = this.pending.get(message.jobId);
+      if (pending && pending.client !== client) {
+        return;
+      }
       this.onProgress({
         jobId: message.jobId,
         message: message.message,
@@ -327,7 +455,7 @@ export class BridgeServer {
       return;
     }
     const pending = this.pending.get(message.jobId);
-    if (!pending) {
+    if (!pending || pending.client !== client) {
       return;
     }
     window.clearTimeout(pending.timeout);
@@ -350,7 +478,23 @@ export class BridgeServer {
     }
   }
 
+  private emitRuntimeStatus(): void {
+    this.onRuntimeStatus(this.getRuntimeStatus());
+  }
+
   private handleHttp(request: IncomingMessage, response: ServerResponse): void {
+    // DNS-rebinding guard: only requests explicitly addressed to the local
+    // loopback endpoint are served, including /health.
+    let boundPort: number;
+    try {
+      boundPort = this.getBoundPort();
+    } catch {
+      return;
+    }
+    if (request.headers.host !== `127.0.0.1:${boundPort}`) {
+      this.writeJson(response, 403, { error: "forbidden" });
+      return;
+    }
     if (request.method === "GET" && request.url === "/health") {
       this.writeJson(response, 200, {
         protocolVersion: PROTOCOL_VERSION,
@@ -387,7 +531,7 @@ export class BridgeServer {
       "Content-Type": asset.mimeType,
       "X-Content-Type-Options": "nosniff"
     });
-    response.end(Buffer.from(asset.bytes));
+    response.end(asset.bytes);
   }
 
   private writeJson(

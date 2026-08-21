@@ -1,12 +1,16 @@
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
+import { BROWSER_RUNTIME_REVISION } from "@crosspost/protocol/runtime";
 import { applyDraftToVisibleEditor } from "../lib/dom-adapter";
 import type {
   ApplyDraftMessage,
   ApplyDraftResult,
   ContentPingMessage,
+  ContentPingResponse,
   SetCsdnMarkdownResponse,
+  SetJuejinMarkdownResponse,
   SetSegmentFaultMarkdownResponse,
+  SetZhihuRichTextResponse,
   UploadBilibiliImageResponse
 } from "../lib/messages";
 
@@ -44,6 +48,23 @@ function isUploadBilibiliImageResponse(
   );
 }
 
+function isSetJuejinMarkdownResponse(
+  value: unknown
+): value is SetJuejinMarkdownResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "applied" in value &&
+    typeof value.applied === "boolean" &&
+    (!("markdown" in value) ||
+      value.markdown === undefined ||
+      typeof value.markdown === "string") &&
+    (!("message" in value) ||
+      value.message === undefined ||
+      typeof value.message === "string")
+  );
+}
+
 function isSetSegmentFaultMarkdownResponse(
   value: unknown
 ): value is SetSegmentFaultMarkdownResponse {
@@ -55,6 +76,23 @@ function isSetSegmentFaultMarkdownResponse(
     (!("markdown" in value) ||
       value.markdown === undefined ||
       typeof value.markdown === "string") &&
+    (!("message" in value) ||
+      value.message === undefined ||
+      typeof value.message === "string")
+  );
+}
+
+function isSetZhihuRichTextResponse(
+  value: unknown
+): value is SetZhihuRichTextResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "applied" in value &&
+    typeof value.applied === "boolean" &&
+    (!("bodyText" in value) ||
+      value.bodyText === undefined ||
+      typeof value.bodyText === "string") &&
     (!("message" in value) ||
       value.message === undefined ||
       typeof value.message === "string")
@@ -86,13 +124,46 @@ export default defineContentScript({
         sendResponse
       ): boolean | undefined => {
         if (message.type === "crosspost:ping") {
-          sendResponse({ ready: true });
+          sendResponse({
+            ready: true,
+            runtimeRevision: BROWSER_RUNTIME_REVISION
+          } satisfies ContentPingResponse);
           return false;
         }
         if (message.type !== "crosspost:apply-draft") {
           return undefined;
         }
         void applyDraftToVisibleEditor(message.payload, {
+          setZhihuRichText: async (html) => {
+            const response: unknown = await browser.runtime.sendMessage({
+              html,
+              type: "crosspost:set-zhihu-rich-text"
+            });
+            if (!isSetZhihuRichTextResponse(response)) {
+              throw new Error("Zhihu returned an invalid editor response.");
+            }
+            if (!response.applied) {
+              throw new Error(
+                response.message ?? "Zhihu rejected the rich-text article."
+              );
+            }
+            return response.bodyText;
+          },
+          setJuejinMarkdown: async (markdown) => {
+            const response: unknown = await browser.runtime.sendMessage({
+              markdown,
+              type: "crosspost:set-juejin-markdown"
+            });
+            if (!isSetJuejinMarkdownResponse(response)) {
+              throw new Error("Juejin returned an invalid editor response.");
+            }
+            if (!response.applied) {
+              throw new Error(
+                response.message ?? "Juejin rejected the source Markdown."
+              );
+            }
+            return response.markdown;
+          },
           setSegmentFaultMarkdown: async (markdown) => {
             const response: unknown = await browser.runtime.sendMessage({
               markdown,

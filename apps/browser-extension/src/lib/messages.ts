@@ -35,6 +35,11 @@ export interface ContentPingMessage {
   type: "crosspost:ping";
 }
 
+export interface ContentPingResponse {
+  ready: true;
+  runtimeRevision: string;
+}
+
 export interface SetCsdnMarkdownRequest {
   markdown: string;
   type: "crosspost:set-csdn-markdown";
@@ -43,6 +48,28 @@ export interface SetCsdnMarkdownRequest {
 export interface SetCsdnMarkdownResponse {
   applied: boolean;
   markdown?: string;
+  message?: string;
+}
+
+export interface SetJuejinMarkdownRequest {
+  markdown: string;
+  type: "crosspost:set-juejin-markdown";
+}
+
+export interface SetJuejinMarkdownResponse {
+  applied: boolean;
+  markdown?: string;
+  message?: string;
+}
+
+export interface SetZhihuRichTextRequest {
+  html: string;
+  type: "crosspost:set-zhihu-rich-text";
+}
+
+export interface SetZhihuRichTextResponse {
+  applied: boolean;
+  bodyText?: string;
   message?: string;
 }
 

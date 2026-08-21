@@ -114,7 +114,7 @@ export async function uploadTextareaMarkdownImagesWithDialog(
   applyMarkdown: (
     editor: HTMLTextAreaElement,
     markdown: string
-  ) => Promise<void>
+  ) => Promise<boolean>
 ): Promise<void> {
   const replacements = new Map<string, string>();
   for (const image of images) {
@@ -318,7 +318,23 @@ export async function setTextareaMarkdown(
   editor: HTMLTextAreaElement,
   markdown: string,
   runtime?: DomAdapterRuntime
-): Promise<void> {
+): Promise<boolean> {
+  if (platform === "juejin" && editor.closest(".CodeMirror")) {
+    if (!runtime?.setJuejinMarkdown) {
+      throw new Error(
+        "Juejin's native CodeMirror writer is unavailable. Reload the extension and retry."
+      );
+    }
+    const appliedMarkdown = await runtime.setJuejinMarkdown(markdown);
+    if (
+      appliedMarkdown !== undefined &&
+      normalizedMarkdownDocument(appliedMarkdown) ===
+        normalizedMarkdownDocument(markdown)
+    ) {
+      return true;
+    }
+    throw new Error("Juejin did not preserve the source Markdown.");
+  }
   if (platform === "segmentfault" && editor.closest(".CodeMirror")) {
     if (!runtime?.setSegmentFaultMarkdown) {
       throw new Error(
@@ -331,11 +347,12 @@ export async function setTextareaMarkdown(
       normalizedMarkdownDocument(appliedMarkdown) ===
         normalizedMarkdownDocument(markdown)
     ) {
-      return;
+      return true;
     }
     throw new Error("SegmentFault did not preserve the source Markdown.");
   }
   setNativeValue(editor, markdown);
+  return false;
 }
 
 export async function uploadContenteditableMarkdownImagesWithDialog(
@@ -481,7 +498,7 @@ export async function uploadTextareaMarkdownImages(
   applyMarkdown: (
     editor: HTMLTextAreaElement,
     markdown: string
-  ) => Promise<void>
+  ) => Promise<boolean>
 ): Promise<void> {
   const replacements = new Map<string, string>();
   for (const image of images) {
@@ -535,7 +552,10 @@ export async function uploadTextareaMarkdownImages(
       `![${alt || "crosspost image"}](${url})`
     );
   }
-  await applyMarkdown(editor, finalizedMarkdown);
+  const verifiedByNativeModel = await applyMarkdown(editor, finalizedMarkdown);
+  if (verifiedByNativeModel) {
+    return;
+  }
   const finalized = await waitFor(() => {
     const current = resolveEditor();
     if (!current || !isTextArea(current)) {

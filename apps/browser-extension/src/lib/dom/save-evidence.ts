@@ -47,7 +47,11 @@ export async function waitForSaveEvidence(
       observer.disconnect();
       resolve(false);
     }, timeoutMs);
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver((records) => {
+      // Skip signature rebuilds for batches that cannot change the evidence.
+      if (records.length === 0) {
+        return;
+      }
       if (saveEvidenceSignature(definition) !== initialSignature) {
         sawStatusChange = true;
       }

@@ -1,5 +1,7 @@
+// Only matches credential-shaped assignments (`key=value`, `"key": "value"`);
+// bare words in prose are left alone.
 const SENSITIVE_ASSIGNMENT =
-  /(["']?(?:app_?secret|asset_?token|pairing_?(?:key|secret))["']?\s*[:=]\s*)(["']?)([^"',\s}]+)/gi;
+  /(["']?(?:app_?secret|asset_?token|pairing_?(?:key|secret)|client_secret|api_?key|secret|password|passwd|token)["']?\s*[:=]\s*)(["']?)([^"',\s}]+)/gi;
 const ACCESS_TOKEN_QUERY = /([?&]access_token=)[^&\s]+/gi;
 const AUTHORIZATION_HEADER =
   /(authorization["']?\s*[:=]\s*)(?:["']?bearer\s+)?["']?([^"',\s}]+)/gi;

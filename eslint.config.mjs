@@ -12,7 +12,6 @@ export default tseslint.config(
       "**/main.js",
       "**/*.config.mjs",
       "vitest.config.ts",
-      "scripts/*.mjs",
       "test-vault/**"
     ]
   },
@@ -25,7 +24,9 @@ export default tseslint.config(
         ...globals.node
       },
       parserOptions: {
-        projectService: true,
+        projectService: {
+          allowDefaultProject: ["scripts/*.mjs"]
+        },
         tsconfigRootDir: import.meta.dirname
       }
     },
@@ -48,6 +49,22 @@ export default tseslint.config(
       "@typescript-eslint/no-unsafe-assignment": "off",
       "@typescript-eslint/no-unsafe-argument": "off",
       "@typescript-eslint/no-unsafe-member-access": "off"
+    }
+  },
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        ...globals.node
+      }
+    },
+    rules: {
+      "@typescript-eslint/no-floating-promises": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-return": "off"
     }
   }
 );

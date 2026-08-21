@@ -8,21 +8,27 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11.18.0
       - uses: actions/setup-node@v4
         with:
           cache: pnpm
           node-version: 24
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      - run: pnpm release:package
+      - run: pnpm verify
+      - run: pnpm build
+      - run: pnpm audit:build
+      - run: pnpm --filter @crosspost/browser-extension zip
+      - run: node scripts/package-release.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: crosspost-studio-${{ github.sha }}

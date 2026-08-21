@@ -77,7 +77,7 @@ function buildMultipart(
   const boundary = `crosspost-${crypto.randomUUID()}`;
   const prefix = new TextEncoder().encode(
     `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="${fieldName}"; filename="${asset.name}"\r\n` +
+      `Content-Disposition: form-data; name="${fieldName.replace(/[\r\n"\\]/g, "_")}"; filename="${asset.name.replace(/[\r\n"\\]/g, "_")}"\r\n` +
       `Content-Type: ${asset.mimeType}\r\n\r\n`
   );
   const suffix = new TextEncoder().encode(`\r\n--${boundary}--\r\n`);
@@ -91,11 +91,32 @@ function buildMultipart(
   };
 }
 
+const WECHAT_ERROR_MESSAGES: Record<number, string> = {
+  40001: "invalid credential",
+  40007: "invalid media_id",
+  42001: "token expired",
+  45009: "rate limited",
+  48001: "api unauthorized"
+};
+
+const TOKEN_RETRY_ERRCODES: Record<number, true> = { 40001: true, 42001: true };
+
+export class WeChatApiError extends Error {
+  constructor(
+    readonly errcode: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "WeChatApiError";
+  }
+}
+
 function assertWeChatSuccess(response: WeChatErrorResponse, action: string): void {
-  if (response.errcode && response.errcode !== 0) {
-    throw new Error(
-      `${action} failed (${response.errcode}): ${response.errmsg ?? "unknown WeChat error"}`
-    );
+  const errcode = response.errcode;
+  if (errcode && errcode !== 0) {
+    const detail =
+      WECHAT_ERROR_MESSAGES[errcode] ?? response.errmsg ?? "unknown WeChat error";
+    throw new WeChatApiError(errcode, `${action} failed (${errcode}): ${detail}`);
   }
 }
 
@@ -162,6 +183,28 @@ export class WeChatClient {
     return data.access_token;
   }
 
+  /**
+   * Runs a WeChat API call with the cached access token. Invalid-token
+   * rejections (40001/42001) clear the cache, fetch a fresh token, and retry
+   * exactly once before surfacing the error.
+   */
+  private async withAccessToken<T>(
+    appId: string,
+    appSecret: string,
+    request: (token: string) => Promise<T>
+  ): Promise<T> {
+    const token = await this.getAccessToken(appId, appSecret);
+    try {
+      return await request(token);
+    } catch (error) {
+      if (!(error instanceof WeChatApiError) || !TOKEN_RETRY_ERRCODES[error.errcode]) {
+        throw error;
+      }
+      this.accessToken = undefined;
+      return request(await this.getAccessToken(appId, appSecret));
+    }
+  }
+
   private async uploadArticleImage(
     token: string,
     asset: PublicationAsset
@@ -187,7 +230,12 @@ export class WeChatClient {
     appId: string,
     appSecret: string
   ): Promise<WeChatDraftListResult> {
-    const token = await this.getAccessToken(appId, appSecret);
+    return this.withAccessToken(appId, appSecret, (token) =>
+      this.listDraftsWithToken(token)
+    );
+  }
+
+  private async listDraftsWithToken(token: string): Promise<WeChatDraftListResult> {
     const drafts: WeChatDraftMatch[] = [];
     let offset = 0;
     let totalCount = 0;
@@ -242,7 +290,16 @@ export class WeChatClient {
     mediaId: string,
     title: string
   ): Promise<WeChatDraftArticle> {
-    const token = await this.getAccessToken(appId, appSecret);
+    return this.withAccessToken(appId, appSecret, (token) =>
+      this.getDraftArticleWithToken(token, mediaId, title)
+    );
+  }
+
+  private async getDraftArticleWithToken(
+    token: string,
+    mediaId: string,
+    title: string
+  ): Promise<WeChatDraftArticle> {
     const response = await requestUrl({
       body: JSON.stringify({ media_id: mediaId }),
       headers: {
@@ -293,7 +350,15 @@ export class WeChatClient {
     if (Array.from(input.artifact.metadata.author ?? "").length > 16) {
       throw new Error("WeChat author names must be at most 16 characters.");
     }
-    const token = await this.getAccessToken(input.appId, input.appSecret);
+    return this.withAccessToken(input.appId, input.appSecret, (token) =>
+      this.saveOrUpdateDraftWithToken(input, token)
+    );
+  }
+
+  private async saveOrUpdateDraftWithToken(
+    input: WeChatDraftInput,
+    token: string
+  ): Promise<DraftBinding> {
     let html = input.artifact.html;
     const remoteImageUrls = new Map<string, string>();
 

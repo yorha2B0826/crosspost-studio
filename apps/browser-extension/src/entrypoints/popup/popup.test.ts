@@ -80,4 +80,21 @@ describe("extension popup platform matrix", () => {
     expect(feedback?.getAttribute("role")).toBe("status");
     expect(feedback?.getAttribute("aria-live")).toBe("polite");
   });
+
+  it("exposes a localized extension restart action without management permission", async () => {
+    const html = await readFile(
+      path.join(
+        process.cwd(),
+        "apps/browser-extension/src/entrypoints/popup/index.html"
+      ),
+      "utf8"
+    );
+    document.documentElement.innerHTML = html;
+
+    const restart =
+      document.querySelector<HTMLButtonElement>("#restart-extension");
+    expect(restart?.type).toBe("button");
+    expect(restart?.dataset.i18n).toBe("connection.restart");
+    expect(t("connection.restart", "zh-CN")).toBe("重载扩展");
+  });
 });

@@ -31,8 +31,12 @@ export function preprocessObsidianMarkdown(markdown: string): PreprocessedMarkdo
         });
         return `> [Crosspost warning: unsupported embed ${target}]`;
       }
-      const label = rawLabel?.trim() || target;
-      return `![${label}](obsidian-asset:${encodeURIComponent(target)})`;
+      const trimmedLabel = rawLabel?.trim();
+      // Obsidian treats a pure-numeric label as a width hint, not alt text.
+      const widthHint = trimmedLabel?.match(/^\d+$/)?.[0];
+      const label = trimmedLabel && !widthHint ? trimmedLabel : target;
+      const fragment = widthHint ? `#w=${widthHint}` : "";
+      return `![${label}](obsidian-asset:${encodeURIComponent(target)}${fragment})`;
     }
   );
 

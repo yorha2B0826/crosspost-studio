@@ -10,21 +10,27 @@ permissions:
   id-token: write
   attestations: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11.18.0
       - uses: actions/setup-node@v4
         with:
           cache: pnpm
           node-version: 24
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      - run: pnpm release:package
+      - run: pnpm verify
+      - run: pnpm build
+      - run: pnpm audit:build
+      - run: pnpm --filter @crosspost/browser-extension zip
+      - run: node scripts/package-release.mjs
       - name: Verify tag matches manifest version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -45,6 +51,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 ||
           gh release create "${GITHUB_REF_NAME}"
           dist/obsidian/main.js
           dist/obsidian/manifest.json
@@ -55,6 +62,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
+          gh release view "browser-${GITHUB_REF_NAME}" >/dev/null 2>&1 ||
           gh release create "browser-${GITHUB_REF_NAME}"
           dist/chromium/*.zip
           --target "${GITHUB_SHA}"

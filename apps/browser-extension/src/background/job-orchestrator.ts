@@ -1,14 +1,14 @@
-import { PROTOCOL_VERSION } from "@crosspost/protocol";
-import type {
-  BridgeMessage,
-  DraftBinding,
-  PublishJob
+import {
+  PROTOCOL_VERSION,
+  type BridgeMessage,
+  type DraftBinding,
+  type PublishJob
 } from "@crosspost/protocol";
 import { browser } from "wxt/browser";
 import { hydrateJobAssets } from "../lib/assets";
-import { IdempotencyLedger } from "../lib/idempotency";
 import {
   canonicalizeCnblogsDraftUrl,
+  isExpectedDraftUrl,
   isStableDraftUrl,
   waitForStableDraftUrl
 } from "../lib/platforms";
@@ -17,46 +17,69 @@ import {
   resolveBilibiliDraftUrl,
   verifyBilibiliDraftAssets
 } from "./draft-verification/bilibili";
+import { verifyCsdnDraftContent } from "./draft-verification/csdn";
 import { verifyJianshuDraftContent } from "./draft-verification/jianshu";
 import { verifySegmentFaultDraftContent } from "./draft-verification/segmentfault";
-import {
-  resolveOsChinaDraftUrl
-} from "./draft-verification/oschina";
+import { resolveOsChinaDraftUrl } from "./draft-verification/oschina";
 import {
   resolveToutiaoDraftUrl,
   verifyToutiaoDraftContent
 } from "./draft-verification/toutiao";
+import { PersistentJobLedger } from "./job-ledger";
 import { applyToTab, openDraftTab, pause } from "./tab-flow";
 
-const cancelledJobs = new Set<string>();
-const jobs = new IdempotencyLedger<
-  Extract<BridgeMessage, { type: "job-result" }>
->();
+const cancelledJobs = new PersistentJobLedger();
 
-export function enqueueJob(job: PublishJob): void {
-  const claim = jobs.claim(job.id);
+// Kick off hydration at service-worker startup; enqueueJob awaits it before
+// claiming an id so replays and interrupted-job answers are available even
+// for the first message after a restart.
+void cancelledJobs.hydrate();
+
+export async function enqueueJob(job: PublishJob): Promise<void> {
+  const claim = await cancelledJobs.claim(job.id);
   if (claim.status === "completed") {
-    send(claim.value);
+    try {
+      send(claim.value);
+    } catch (error) {
+      console.warn(
+        `Failed to deliver the stored result for job ${job.id} to Obsidian.`,
+        error
+      );
+    }
     return;
   }
   if (claim.status === "active") {
-    sendProgress(job.id, "queued", "This idempotent job is already running.");
+    sendProgressSafe(
+      job.id,
+      "queued",
+      "This idempotent job is already running."
+    );
     return;
   }
-  void processJob(job).finally(() => {
-    jobs.release(job.id);
-  });
+  try {
+    await processJob(job);
+  } catch (error) {
+    console.warn(`Failed to run draft job ${job.id}.`, error);
+  } finally {
+    await cancelledJobs.release(job.id);
+    await cancelledJobs.clearCancelled(job.id);
+  }
 }
 
 async function processJob(job: PublishJob): Promise<void> {
   let editorMayHaveChanged = false;
+  const isCancelled = (): boolean => cancelledJobs.isCancelled(job.id);
   try {
-    if (cancelledJobs.delete(job.id)) {
-      sendResult(job, "cancelled", "The job was cancelled before it started.");
+    if (await cancelledJobs.clearCancelled(job.id)) {
+      await sendResult(
+        job,
+        "cancelled",
+        "The job was cancelled before it started."
+      );
       return;
     }
     if (!(await hasPlatformPermission(job.target))) {
-      sendResult(
+      await sendResult(
         job,
         "failed",
         `Enable ${job.target} in the extension popup before retrying.`,
@@ -66,20 +89,32 @@ async function processJob(job: PublishJob): Promise<void> {
       return;
     }
 
-    sendProgress(job.id, "prepared", "Loading one-time article assets from Obsidian.");
+    sendProgressSafe(
+      job.id,
+      "prepared",
+      "Loading one-time article assets from Obsidian."
+    );
     const content = await hydrateJobAssets(job);
-    if (cancelledJobs.delete(job.id)) {
-      sendResult(job, "cancelled", "The job was cancelled.");
+    if (await cancelledJobs.clearCancelled(job.id)) {
+      await sendResult(job, "cancelled", "The job was cancelled.");
       return;
     }
 
-    sendProgress(job.id, "waiting-for-login", "Opening the visible platform draft editor.");
+    sendProgressSafe(
+      job.id,
+      "waiting-for-login",
+      "Opening the visible platform draft editor."
+    );
     const tabId = await openDraftTab(job);
-    sendProgress(job.id, "injecting", "Filling the visible editor and waiting for save confirmation.");
+    sendProgressSafe(
+      job.id,
+      "injecting",
+      "Filling the visible editor and waiting for save confirmation."
+    );
     editorMayHaveChanged = true;
     const result = await applyToTab(tabId, job, content);
     if (!result.saved || !result.draftUrl) {
-      sendResult(
+      await sendResult(
         job,
         result.unknown ? "unknown" : "failed",
         result.message,
@@ -90,7 +125,11 @@ async function processJob(job: PublishJob): Promise<void> {
     }
     const resolvedPlatformDraftUrl =
       job.target === "bilibili" && !isStableDraftUrl(job.target, result.draftUrl)
-        ? await resolveBilibiliDraftUrl(tabId, job.artifact.metadata.title)
+        ? await resolveBilibiliDraftUrl(
+            tabId,
+            job.artifact.metadata.title,
+            isCancelled
+          )
         : job.target === "oschina" &&
             !isStableDraftUrl(job.target, result.draftUrl)
           ? await resolveOsChinaDraftUrl(
@@ -102,19 +141,24 @@ async function processJob(job: PublishJob): Promise<void> {
               !isStableDraftUrl(job.target, result.draftUrl)
             ? await resolveToutiaoDraftUrl(
                 tabId,
-                job.artifact.metadata.title
+                job.artifact.metadata.title,
+                isCancelled
               )
           : undefined;
     const stableDraftUrl =
       resolvedPlatformDraftUrl ??
-      (await waitForStableDraftUrl(
-        job.target,
-        result.draftUrl,
-        async () => (await browser.tabs.get(tabId)).url,
-        () => pause(250)
-      ));
+      (job.target === "baijiahao" &&
+      result.draftUrl &&
+      isExpectedDraftUrl(job.target, result.draftUrl)
+        ? result.draftUrl
+        : await waitForStableDraftUrl(
+            job.target,
+            result.draftUrl,
+            async () => (await browser.tabs.get(tabId)).url,
+            () => pause(250)
+          ));
     if (!stableDraftUrl) {
-      sendResult(
+      await sendResult(
         job,
         "unknown",
         "The platform reported a save, but the resulting URL did not identify a reusable draft.",
@@ -124,7 +168,7 @@ async function processJob(job: PublishJob): Promise<void> {
       return;
     }
     if (job.target === "bilibili") {
-      sendProgress(
+      sendProgressSafe(
         job.id,
         "injecting",
         "Reloading the saved Bilibili draft to verify its uploaded images."
@@ -132,10 +176,14 @@ async function processJob(job: PublishJob): Promise<void> {
       const expectedImageCount = (content.html.match(/<img\b/gi) ?? []).length;
       const verified = await verifyBilibiliDraftAssets(
         tabId,
-        expectedImageCount
+        expectedImageCount,
+        isCancelled
       );
       if (!verified) {
-        sendResult(
+        if (await abortIfCancelled(job)) {
+          return;
+        }
+        await sendResult(
           job,
           "unknown",
           "Bilibili reported a save, but the reloaded draft did not preserve every uploaded image.",
@@ -145,23 +193,54 @@ async function processJob(job: PublishJob): Promise<void> {
         return;
       }
     }
+    if (job.target === "csdn") {
+      sendProgressSafe(
+        job.id,
+        "injecting",
+        "Reloading the saved CSDN draft to verify its Markdown and images."
+      );
+      const verification = await verifyCsdnDraftContent(
+        tabId,
+        job.artifact.metadata.title,
+        result.bodyText ?? "",
+        result.imageCount ?? 0,
+        isCancelled
+      );
+      if (!verification.verified) {
+        if (await abortIfCancelled(job)) {
+          return;
+        }
+        await sendResult(
+          job,
+          "unknown",
+          `CSDN accepted the edit, but the reloaded draft did not preserve the replacement Markdown and images (${verification.diagnostic}).`,
+          undefined,
+          "editor-update-unconfirmed"
+        );
+        return;
+      }
+    }
     if (job.target === "jianshu") {
-      sendProgress(
+      sendProgressSafe(
         job.id,
         "injecting",
         "Reloading the saved Jianshu draft to verify its article body and images."
       );
-      const verified = await verifyJianshuDraftContent(
+      const verification = await verifyJianshuDraftContent(
         tabId,
         job.artifact.metadata.title,
         result.bodyText ?? "",
-        result.imageCount ?? 0
+        result.imageCount ?? 0,
+        isCancelled
       );
-      if (!verified) {
-        sendResult(
+      if (!verification.verified) {
+        if (await abortIfCancelled(job)) {
+          return;
+        }
+        await sendResult(
           job,
           "unknown",
-          "Jianshu reported a save, but the reloaded draft did not preserve the replacement article body and images.",
+          `Jianshu accepted the edit, but the reloaded draft did not preserve the replacement article body and images (${verification.diagnostic}).`,
           undefined,
           "editor-update-unconfirmed"
         );
@@ -169,7 +248,7 @@ async function processJob(job: PublishJob): Promise<void> {
       }
     }
     if (job.target === "toutiao") {
-      sendProgress(
+      sendProgressSafe(
         job.id,
         "injecting",
         "Reloading the saved Toutiao draft to verify its article body and images."
@@ -178,10 +257,14 @@ async function processJob(job: PublishJob): Promise<void> {
         tabId,
         job.artifact.metadata.title,
         content.html,
-        result.imageCount ?? 0
+        result.imageCount ?? 0,
+        isCancelled
       );
       if (!verification.verified) {
-        sendResult(
+        if (await abortIfCancelled(job)) {
+          return;
+        }
+        await sendResult(
           job,
           "unknown",
           `Toutiao accepted the edit, but the reloaded draft did not preserve the article body and uploaded images (${verification.diagnostic}).`,
@@ -192,7 +275,7 @@ async function processJob(job: PublishJob): Promise<void> {
       }
     }
     if (job.target === "segmentfault") {
-      sendProgress(
+      sendProgressSafe(
         job.id,
         "injecting",
         "Reloading the saved SegmentFault draft to verify its Markdown and images."
@@ -201,10 +284,14 @@ async function processJob(job: PublishJob): Promise<void> {
         tabId,
         job.artifact.metadata.title,
         result.bodyText ?? "",
-        result.imageCount ?? 0
+        result.imageCount ?? 0,
+        isCancelled
       );
       if (!verified) {
-        sendResult(
+        if (await abortIfCancelled(job)) {
+          return;
+        }
+        await sendResult(
           job,
           "unknown",
           "SegmentFault accepted the edit, but the reloaded draft did not preserve the exact Markdown and uploaded images.",
@@ -224,38 +311,64 @@ async function processJob(job: PublishJob): Promise<void> {
       sourceHash: job.artifact.contentHash,
       updatedAt: new Date().toISOString()
     };
-    sendResult(
+    await sendResult(
       job,
       "draft-saved",
       job.target === "segmentfault"
         ? "SegmentFault preserved the exact Markdown and uploaded images after reload."
         : job.target === "toutiao"
           ? "Toutiao preserved the article body and uploaded images after reload."
+          : job.target === "baijiahao" &&
+              !isStableDraftUrl(job.target, reusableDraftUrl)
+            ? "Baijiahao accepted the visible draft action. Keep the saved draft tab open, or reopen that draft manually before updating it."
         : result.message,
       binding
     );
   } catch (error) {
     const state =
       editorMayHaveChanged && !job.existingBinding ? "unknown" : "failed";
-    sendResult(
+    await sendResult(
       job,
       state,
       error instanceof Error ? error.message : "The browser draft job failed.",
       undefined,
       state === "unknown" ? "create-result-unknown" : "browser-job-failed"
     );
-  } finally {
-    cancelledJobs.delete(job.id);
   }
 }
 
-function sendResult(
+/**
+ * Progress delivery is best-effort: losing a progress message must never
+ * abort the underlying draft job.
+ */
+function sendProgressSafe(
+  jobId: string,
+  state: Parameters<typeof sendProgress>[1],
+  message: string
+): void {
+  try {
+    sendProgress(jobId, state, message);
+  } catch (error) {
+    console.warn(`Failed to deliver progress for job ${jobId}.`, error);
+  }
+}
+
+/** Answer a cancellation that arrived during a polling phase. */
+async function abortIfCancelled(job: PublishJob): Promise<boolean> {
+  if (!cancelledJobs.isCancelled(job.id)) {
+    return false;
+  }
+  await sendResult(job, "cancelled", "The job was cancelled.");
+  return true;
+}
+
+async function sendResult(
   job: PublishJob,
   state: "draft-saved" | "failed" | "unknown" | "cancelled",
   message: string,
   binding?: DraftBinding,
   errorCode?: string
-): void {
+): Promise<void> {
   const result = {
     binding,
     errorCode,
@@ -265,10 +378,18 @@ function sendResult(
     state,
     type: "job-result"
   } satisfies Extract<BridgeMessage, { type: "job-result" }>;
-  jobs.complete(job.id, result);
-  send(result);
+  // Persist the terminal result first so a failed delivery never loses it.
+  await cancelledJobs.complete(job.id, result);
+  try {
+    send(result);
+  } catch (error) {
+    console.warn(
+      `Failed to deliver the result for job ${job.id} to Obsidian.`,
+      error
+    );
+  }
 }
 
 export function cancelJob(jobId: string): void {
-  cancelledJobs.add(jobId);
+  void cancelledJobs.markCancelled(jobId);
 }

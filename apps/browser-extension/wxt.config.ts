@@ -1,4 +1,14 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "wxt";
+
+// Single source of truth shared with scripts/audit-build.mjs.
+const platformOrigins = JSON.parse(
+  readFileSync(
+    fileURLToPath(new URL("../../scripts/platform-origins.json", import.meta.url)),
+    "utf8"
+  )
+) as string[];
 
 export default defineConfig({
   manifest: {
@@ -10,20 +20,7 @@ export default defineConfig({
     host_permissions: ["http://127.0.0.1/*"],
     minimum_chrome_version: "116",
     name: "Crosspost Studio Bridge",
-    optional_host_permissions: [
-      "https://editor.csdn.net/*",
-      "https://baijiahao.baidu.com/*",
-      "https://blog.51cto.com/*",
-      "https://member.bilibili.com/*",
-      "https://i.cnblogs.com/*",
-      "https://my.oschina.net/*",
-      "https://mp.toutiao.com/*",
-      "https://segmentfault.com/*",
-      "https://cloud.tencent.com/*",
-      "https://*.zhihu.com/*",
-      "https://juejin.cn/*",
-      "https://www.jianshu.com/*"
-    ],
+    optional_host_permissions: [...platformOrigins],
     permissions: ["scripting", "storage", "tabs"]
   },
   srcDir: "src"

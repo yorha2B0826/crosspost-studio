@@ -1,30 +1,33 @@
 {
   "name": "crosspost-studio",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "description": "Local-first Obsidian publishing studio for multi-platform content drafts.",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@11.18.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "audit:build": "node scripts/audit-build.mjs",
     "build": "pnpm -r build && node scripts/package-obsidian.mjs",
-    "check": "pnpm lint && pnpm lint:obsidian && pnpm typecheck && pnpm test && pnpm build && pnpm audit:build",
+    "check": "pnpm verify && pnpm build && pnpm audit:build",
     "dev:extension": "pnpm --filter @crosspost/browser-extension dev",
     "dev:obsidian": "pnpm --filter @crosspost/obsidian-plugin dev",
     "lint": "eslint .",
     "lint:obsidian": "eslint apps packages --config eslint.obsidian.config.mjs",
+    "verify": "pnpm lint && pnpm lint:obsidian && pnpm typecheck && pnpm test",
     "release:package": "pnpm build && pnpm --filter @crosspost/browser-extension zip && node scripts/package-release.mjs",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
     "@types/node": "^24.1.0",
+    "@vitest/coverage-v8": "^3.2.4",
     "eslint": "^9.32.0",
     "eslint-plugin-obsidianmd": "^0.4.1",
     "globals": "^16.3.0",

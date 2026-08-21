@@ -3,6 +3,7 @@ import path from "node:path";
 
 const root = process.cwd();
 const MAX_SYNC_STANDARD_PLUGIN_BYTES = 5_000_000;
+const WARN_SYNC_STANDARD_PLUGIN_BYTES = 4_500_000;
 
 // The Obsidian plugin directory is primarily English-speaking. An
 // English description of the plugin is required in the README.
@@ -26,6 +27,33 @@ const pluginManifest = JSON.parse(
 );
 if (JSON.stringify(rootManifest) !== JSON.stringify(pluginManifest)) {
   throw new Error("Root and Obsidian plugin manifests must stay identical.");
+}
+const rootPackage = JSON.parse(
+  await readFile(path.join(root, "package.json"), "utf8")
+);
+const obsidianPluginPackage = JSON.parse(
+  await readFile(
+    path.join(root, "apps", "obsidian-plugin", "package.json"),
+    "utf8"
+  )
+);
+const browserExtensionPackage = JSON.parse(
+  await readFile(
+    path.join(root, "apps", "browser-extension", "package.json"),
+    "utf8"
+  )
+);
+for (const [label, value] of [
+  ["root package.json", rootPackage.version],
+  ["Obsidian plugin manifest", pluginManifest.version],
+  ["Obsidian plugin package.json", obsidianPluginPackage.version],
+  ["browser extension package.json", browserExtensionPackage.version]
+]) {
+  if (value !== rootManifest.version) {
+    throw new Error(
+      `${label} version ${value} must match manifest.json version ${rootManifest.version}.`
+    );
+  }
 }
 const versions = JSON.parse(
   await readFile(path.join(root, "versions.json"), "utf8")
@@ -59,20 +87,10 @@ if (JSON.stringify(requiredOrigins) !== JSON.stringify(["http://127.0.0.1/*"])) 
   );
 }
 
-const expectedOrigins = [
-  "https://editor.csdn.net/*",
-  "https://baijiahao.baidu.com/*",
-  "https://blog.51cto.com/*",
-  "https://member.bilibili.com/*",
-  "https://i.cnblogs.com/*",
-  "https://my.oschina.net/*",
-  "https://mp.toutiao.com/*",
-  "https://segmentfault.com/*",
-  "https://cloud.tencent.com/*",
-  "https://*.zhihu.com/*",
-  "https://juejin.cn/*",
-  "https://www.jianshu.com/*"
-].sort();
+const platformOrigins = JSON.parse(
+  await readFile(path.join(root, "scripts", "platform-origins.json"), "utf8")
+);
+const expectedOrigins = [...platformOrigins].sort();
 const actualOrigins = [...(manifest.optional_host_permissions ?? [])].sort();
 if (JSON.stringify(actualOrigins) !== JSON.stringify(expectedOrigins)) {
   throw new Error(
@@ -134,6 +152,11 @@ const pluginBundleSize = (await stat(pluginBundle)).size;
 if (pluginBundleSize > MAX_SYNC_STANDARD_PLUGIN_BYTES) {
   throw new Error(
     `Obsidian main.js is ${(pluginBundleSize / 1_000_000).toFixed(2)} MB; it must not exceed 5 MB for Sync Standard.`
+  );
+}
+if (pluginBundleSize > WARN_SYNC_STANDARD_PLUGIN_BYTES) {
+  console.warn(
+    `Warning: Obsidian main.js is ${(pluginBundleSize / 1_000_000).toFixed(2)} MB; it should stay below 4.5 MB for Sync Standard.`
   );
 }
 const forbiddenRuntimePatterns = [

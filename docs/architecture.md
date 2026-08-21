@@ -20,11 +20,23 @@ rasterized from the same SVG output. Intrinsic dimensions and inline baseline
 metadata keep formulas aligned with surrounding text. Output includes platform
 HTML, platform Markdown, a content hash, and content-addressed asset descriptors;
 asset bytes live only in memory.
+A purely numeric embed label such as `![[img.png|600]]` is recognized as a
+display width and emits `<img width="600">` instead of polluting the alt text.
+Invalid LaTeX that MathJax reports as `merror` raises a
+`formula-render-failed` diagnostic instead of silently producing a red error
+SVG, and formula SVG assets for non-WeChat platforms pass the same safety
+assertions as WeChat before entering the asset store. Custom CSS is parsed
+segment by segment: unparsable segments are skipped with a
+`custom-css-parse-failed` warning instead of silently clearing all custom
+styles, and the sanitizer additionally rejects string-form URL constructs such
+as `image-set(` and `src(`.
 
 ## Platform Boundaries
 
 - The WeChat adapter uploads body images and the cover via the official API
-  inside Obsidian, then creates or updates a draft.
+  inside Obsidian, then creates or updates a draft. Access-token responses
+  with errcode 40001/42001 clear the cached token and retry once; common
+  error codes map to readable messages.
 - Manual WeChat handoff offers two derived clipboard formats: rich HTML for a
   normal editor paste, and literal HTML source for source-editor helpers that
   read plain clipboard text and apply it to the editor DOM. Markdown remains
@@ -55,10 +67,16 @@ The server generates a 256-bit nonce; the extension replies with
 WebSocket; the extension fetches them from `127.0.0.1` using a per-job bearer
 token that expires after ten minutes with caching disabled.
 
-The extension maintains an in-memory idempotency ledger for Job IDs: duplicate
-messages for an active job are suppressed, and the last 100 completed results
-can be replayed. Completion metadata does not include the article body. A
-service-worker restart loses in-progress body jobs; the user must resend.
+The extension maintains an idempotency ledger for Job IDs: duplicate messages
+for an active job are suppressed. Completed terminal results — at most 100
+entries of metadata only (job ID, state, error code, message, binding, draft
+URL, completion time) — persist to `browser.storage.local` and are restored
+when the service worker starts. Resending an already-completed job ID replays
+the stored result without re-executing; a job ID that was still in flight
+across a restart returns an explicit `unknown` result (`job-interrupted`)
+asking the user to verify the outcome manually on the platform — it is never
+re-executed. The cancelled set persists the same way. Article bodies and asset
+bytes are never persisted.
 
 ## Unknown State
 
@@ -78,6 +96,8 @@ CROSSPOST_FORMULA_a7b3c9d1_BLOCK_<hex>_END
 ```
 
 The UUID prefix (`a7b3c9d1`) prevents collisions with user-authored text.
+Only markers emitted by the current render pass are rewritten or decoded;
+literal marker-shaped text in the body is left untouched.
 Markdown processors may escape underscores; both forms are matched during
 reconstruction. WeChat uses a separate fixed-prefix placeholder while the
 trusted, sanitized inline SVG is carried out-of-band during Markdown-to-HTML
@@ -100,10 +120,18 @@ rejected before insertion.
 其他不支持原生公式的平台仍将同一 SVG 栅格化为高清 PNG。固有尺寸与行内基线信息用于保持
 公式和正文对齐。生成物包含平台 HTML、平台 Markdown、内容哈希和内容寻址资源描述；资源
 字节只存在内存映射中。
+形如 `![[img.png|600]]` 的纯数字嵌入 label 会被识别为显示宽度，产出
+`<img width="600">`，不再污染 alt 文本。MathJax 报告 `merror` 的无效 LaTeX 会走
+`formula-render-failed` 诊断，不再静默产出红色错误 SVG；非微信平台的公式 SVG 资产
+入库前会执行与微信相同的安全断言。自定义 CSS 逐段解析：无法解析的段会被跳过并发出
+`custom-css-parse-failed` 警告，而不是静默清空全部自定义样式；消毒器还会拒绝
+`image-set(`、`src(` 等字符串形式的 URL 构造。
 
 ## 平台边界
 
 - 微信适配器在 Obsidian 中用官方 API 上传正文图片与封面，然后新增或更新草稿。
+  access_token 返回 errcode 40001/42001 时会清空缓存并重试一次；常见错误码会映射为
+  可读消息。
 - 微信手工交付提供两种派生剪贴板格式：用于普通粘贴的富 HTML，以及供
   “读取纯文本剪贴板并写入编辑器 DOM”类源码助手使用的 HTML 源码。两种情况下
   Markdown 仍是唯一源稿。
@@ -111,6 +139,9 @@ rejected before insertion.
   校验的草稿页、注入运行时内容脚本并等待平台显示明确保存状态。
 - 首次创建只有在结果 URL 含有可复用的草稿标识后才会写入 binding；仍停留在通用新建页时
   按 `unknown` 处理，避免重试造成重复草稿。
+- 百家号是显式例外：平台的可见“存草稿”动作可能保留通用编辑 URL。扩展会记录该
+  session-bound binding；若原标签页已经关闭，则拒绝自动打开通用新建页，要求用户先从
+  草稿箱打开原稿后再更新，继续避免重复草稿。
 - 平台之间没有事务或回滚；每个平台独立写入 binding 和任务状态。
 
 ## 协议
@@ -126,8 +157,12 @@ rejected before insertion.
 服务端生成 256-bit nonce，扩展返回 `HMAC-SHA256(pairingKey, nonce)`。文章资源不进入
 WebSocket 消息；扩展持任务级 bearer token 从 `127.0.0.1` 获取，十分钟过期且禁用缓存。
 
-扩展对 Job ID 使用内存幂等 ledger：运行中重复消息不会再执行，最近 100 个完成结果可以重放。
-完成元数据不包含正文。service worker 重启后无法恢复中断正文任务，用户必须重新发送。
+扩展对 Job ID 使用幂等 ledger：运行中重复消息不会再执行。已完成任务的终态结果——
+最多 100 条、仅含元数据（jobId、state、errorCode、message、binding、draftUrl、
+completedAt）——持久化到 `browser.storage.local`，并在 service worker 启动时回灌。
+对已完成 id 的重发会直接重放存储结果，不会重新执行；重启时仍 in-flight 的 id 返回
+显式 `unknown` 结果（`job-interrupted`），提示用户到平台手动核实结果——绝不重新执行。
+cancelled 集合同样持久化。文章正文与资产字节永不持久化。
 
 ## 未知状态
 
@@ -143,6 +178,7 @@ WebSocket 消息；扩展持任务级 bearer token 从 `127.0.0.1` 获取，十�
 CROSSPOST_FORMULA_a7b3c9d1_BLOCK_<hex>_END
 ```
 
-UUID 前缀（`a7b3c9d1`）防止与用户正文的意外碰撞。Markdown 处理器可能会转义下划线；
+UUID 前缀（`a7b3c9d1`）防止与用户正文的意外碰撞。渲染器只重写或解码本次渲染发射过的
+标记；正文中形似标记的字面文本不会被替换。Markdown 处理器可能会转义下划线；
 重建时会同时匹配两种形式。微信使用另一种固定前缀占位符，在 Markdown 转 HTML 期间于
 AST 外保存可信且已清洗的内联 SVG；插入前会拒绝活动 SVG 内容、链接、事件处理器和外部 URL。

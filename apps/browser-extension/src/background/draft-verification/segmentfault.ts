@@ -5,14 +5,18 @@ export async function verifySegmentFaultDraftContent(
   tabId: number,
   expectedTitle: string,
   expectedMarkdown: string,
-  expectedImageCount: number
+  expectedImageCount: number,
+  isCancelled?: () => boolean
 ): Promise<boolean> {
   // SegmentFault does not expose a persistent visible autosave label. Its
   // server-side debounce can lag behind the editor after several image uploads,
   // so keep the completed document visible long enough before reload readback.
-  await pause(12_000);
+  await pause(12_000, isCancelled);
   await reloadTabAndWait(tabId);
   for (let attempt = 0; attempt < 80; attempt += 1) {
+    if (isCancelled?.()) {
+      return false;
+    }
     const [injection] = await browser.scripting.executeScript({
       args: [expectedTitle, expectedMarkdown, expectedImageCount],
       func: (
@@ -26,6 +30,10 @@ export async function verifySegmentFaultDraftContent(
         type SegmentFaultCodeMirror = {
           getValue: () => string;
         };
+        // NOTE: this React fiber walk mirrors the one in
+        // main-world/segmentfault.ts (resolveCodeMirrorModel). executeScript
+        // functions must be self-contained, so the copies cannot share code —
+        // keep them in sync when changing.
         const isCodeMirrorModel = (
           value: unknown
         ): value is SegmentFaultCodeMirror =>
@@ -99,7 +107,7 @@ export async function verifySegmentFaultDraftContent(
     if (injection?.result === true) {
       return true;
     }
-    await pause(250);
+    await pause(250, isCancelled);
   }
   return false;
 }

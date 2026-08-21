@@ -94,6 +94,10 @@ export async function setSegmentFaultMarkdownInMainWorld(
         value !== null &&
         typeof Reflect.get(value, "getValue") === "function" &&
         typeof Reflect.get(value, "setValue") === "function";
+      // NOTE: this React fiber walk is deliberately duplicated in
+      // draft-verification/segmentfault.ts (resolveCodeMirrorModel inside the
+      // executeScript payload). executeScript functions must be self-contained,
+      // so the two copies cannot share code — keep them in sync when changing.
       const resolveCodeMirrorModel = (): SegmentFaultCodeMirror | undefined => {
         const host = document.querySelector<HTMLElement>(".sf-editor");
         if (!host) {

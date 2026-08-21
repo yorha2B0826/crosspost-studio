@@ -20,7 +20,8 @@ Community are supported as well. It saves drafts only; it does not publish.
 - All browser platforms only operate on the user's already-logged-in visible
   editor — no private APIs, no cookie reading.
 - The plugin and extension communicate exclusively over `127.0.0.1`; no cloud
-  relay, telemetry, or persistent article body storage.
+  relay, telemetry, or persistent article body storage. Task metadata (job
+  IDs, states, bindings) does persist across extension restarts.
 - Failure on any platform does not roll back drafts on others.
 - When creation outcome is uncertain the task is recorded as `unknown` and
   auto-rebuild is locked to prevent duplicate drafts.
@@ -58,6 +59,10 @@ pnpm install
 pnpm check
 pnpm release:package
 ```
+
+`pnpm test:coverage` runs the test suite with coverage. To release a new
+version, `node scripts/bump-version.mjs <version>` updates all seven version
+references in one step.
 
 Release artifacts:
 
@@ -212,7 +217,8 @@ state-machine, and build checks but have not yet claimed real account verificati
 
 See [SECURITY.md](SECURITY.md). This project collects no telemetry, does not write
 credentials into the repository, does not read browser cookies, and does not
-restore or persist article body text across extension restarts.
+restore or persist article body text across extension restarts. Task metadata
+(job IDs, states, bindings) does persist across restarts.
 
 ### Network & Account Disclosure
 
@@ -270,9 +276,15 @@ Crosspost Studio 是一个本地优先的桌面插件与 Chromium 扩展，用�
 - Obsidian 笔记始终是唯一源稿。
 - 微信公众号通过官方素材与草稿 API；AppSecret 存在 Obsidian SecretStorage。
 - 所有浏览器平台只操作用户已登录的可见编辑器，不调用私有 API，也不读取 Cookie。
-- 插件与扩展仅通过 `127.0.0.1` 通信；没有云端中转、遥测或文章正文持久化。
+- 插件与扩展仅通过 `127.0.0.1` 通信；没有云端中转、遥测或文章正文持久化。任务元数据
+  （id、状态、binding）会跨扩展重启持久化。
 - 任何平台失败都不会回滚其他平台草稿。
 - 创建请求结果不确定时记录为 `unknown` 并锁住自动重建，防止重复草稿。
+
+百家号当前的“存草稿”动作可能不返回带 `article_id` 的编辑 URL。Crosspost Studio
+会在核对正文后把这次可见保存动作记为成功，但该 binding 仅能在原草稿标签页仍打开时
+自动更新；浏览器重启后必须先从百家号草稿箱手工打开原草稿。扩展不会退回通用新建页，
+以免重复建稿。
 
 ## 仓库结构
 
@@ -305,6 +317,9 @@ pnpm install
 pnpm check
 pnpm release:package
 ```
+
+`pnpm test:coverage` 可以带覆盖率运行测试。发布新版本时，`node
+scripts/bump-version.mjs <version>` 可一键改齐全部 7 处版本号。
 
 发布物位于：
 
@@ -445,7 +460,8 @@ frontmatter 字段和平台 binding 会保留。
 ## 安全与隐私
 
 参见 [SECURITY.md](SECURITY.md)。本项目不收集遥测，不把凭据写入仓库，不读取浏览器
-Cookie，也不会在扩展重启后恢复或持久化文章正文。
+Cookie，也不会在扩展重启后恢复或持久化文章正文。任务元数据（id、状态、binding）会跨
+重启持久化。
 
 ### 网络与账号披露
 

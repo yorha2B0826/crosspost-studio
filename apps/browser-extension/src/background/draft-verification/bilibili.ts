@@ -4,11 +4,15 @@ import { canonicalizeBilibiliDraftUrl } from "../../lib/platforms";
 
 export async function resolveBilibiliDraftUrl(
   tabId: number,
-  expectedTitle: string
+  expectedTitle: string,
+  isCancelled?: () => boolean
 ): Promise<string | undefined> {
   await navigateTabAndWait(tabId, "https://member.bilibili.com/york/read-draft");
   let editClicked = false;
   for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (isCancelled?.()) {
+      return undefined;
+    }
     const [injection] = await browser.scripting.executeScript({
       args: [expectedTitle],
       func: (title: string): boolean => {
@@ -36,13 +40,16 @@ export async function resolveBilibiliDraftUrl(
       editClicked = true;
       break;
     }
-    await pause(250);
+    await pause(250, isCancelled);
   }
   if (!editClicked) {
     return undefined;
   }
 
   for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (isCancelled?.()) {
+      return undefined;
+    }
     const currentUrl = (await browser.tabs.get(tabId)).url;
     const canonical = currentUrl
       ? canonicalizeBilibiliDraftUrl(currentUrl)
@@ -51,17 +58,21 @@ export async function resolveBilibiliDraftUrl(
       await navigateTabAndWait(tabId, canonical);
       return canonical;
     }
-    await pause(250);
+    await pause(250, isCancelled);
   }
   return undefined;
 }
 
 export async function verifyBilibiliDraftAssets(
   tabId: number,
-  expectedImageCount: number
+  expectedImageCount: number,
+  isCancelled?: () => boolean
 ): Promise<boolean> {
   await reloadTabAndWait(tabId);
   for (let attempt = 0; attempt < 80; attempt += 1) {
+    if (isCancelled?.()) {
+      return false;
+    }
     const [injection] = await browser.scripting.executeScript({
       args: [expectedImageCount],
       func: (expected: number): boolean | undefined => {
@@ -94,7 +105,7 @@ export async function verifyBilibiliDraftAssets(
     if (injection?.result === true) {
       return true;
     }
-    await pause(250);
+    await pause(250, isCancelled);
   }
   return false;
 }

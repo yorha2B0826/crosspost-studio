@@ -16,7 +16,7 @@ function expectedRichTextBlocks(html: string): string[] {
     .flatMap((element) => {
       const clone = element.cloneNode(true) as HTMLElement;
       for (const media of clone.querySelectorAll(
-        "img, svg, video, iframe, canvas"
+        "img, svg, video, iframe, canvas, [data-tex], .FormulaCSR, .ztext-math"
       )) {
         media.replaceWith(clone.ownerDocument.createTextNode("\0"));
       }
@@ -38,6 +38,37 @@ export function richEditorContainsHtmlText(editor: HTMLElement, html: string): b
   }
   const blocks = expectedRichTextBlocks(html);
   return blocks.length > 0 && blocks.every((block) => actual.includes(block));
+}
+
+function stringCounts(values: Iterable<string>): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export function richEditorContainsFormulaData(
+  editor: HTMLElement,
+  html: string
+): boolean {
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  const expected = stringCounts(
+    Array.from(parsed.body.querySelectorAll<HTMLElement>("[data-tex]"))
+      .map((formula) => formula.dataset.tex ?? "")
+      .filter((latex) => latex.length > 0)
+  );
+  if (expected.size === 0) {
+    return true;
+  }
+  const actual = stringCounts(
+    Array.from(editor.querySelectorAll<HTMLElement>("[data-tex]"))
+      .map((formula) => formula.dataset.tex ?? "")
+      .filter((latex) => latex.length > 0)
+  );
+  return Array.from(expected).every(
+    ([latex, count]) => (actual.get(latex) ?? 0) >= count
+  );
 }
 
 export function richEditorReadbackMismatch(

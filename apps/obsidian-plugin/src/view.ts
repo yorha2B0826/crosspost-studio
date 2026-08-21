@@ -14,6 +14,7 @@ import type { App, WorkspaceLeaf } from "obsidian";
 
 import type CrosspostStudioPlugin from "./main.js";
 import type { PublishStatusUpdate } from "./main.js";
+import type { BridgeRuntimeStatus } from "./bridge-server.js";
 
 export const CROSSPOST_VIEW_TYPE = "crosspost-studio-view";
 
@@ -245,6 +246,8 @@ export class CrosspostView extends ItemView {
   private diagnosticsEl?: HTMLElement;
   private diagnosticSummaryEl?: HTMLElement;
   private isPublishing = false;
+  private livePublishFile?: string;
+  private readonly liveStatuses = new Map<PlatformId, PublishStatusUpdate>();
   private cachedWeChatPreview?: CachedWeChatPreview;
   private previewEl?: HTMLElement;
   private previewFrameEl?: HTMLElement;
@@ -268,6 +271,7 @@ export class CrosspostView extends ItemView {
   private statusesEl?: HTMLElement;
   private theme: ThemeId;
   private unsubscribeBridge?: () => void;
+  private unsubscribeBridgeRuntime?: () => void;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -299,6 +303,9 @@ export class CrosspostView extends ItemView {
       }
       this.bridgeActivityEl.dataset.state = progress.state;
       this.bridgeActivityEl.setText(localizeStatusMessage(progress.message));
+    });
+    this.unsubscribeBridgeRuntime = this.plugin.onBridgeRuntimeStatus((status) => {
+      this.renderBridgeRuntimeStatus(status);
     });
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
@@ -335,10 +342,31 @@ export class CrosspostView extends ItemView {
 
   onClose(): Promise<void> {
     this.unsubscribeBridge?.();
+    this.unsubscribeBridgeRuntime?.();
     if (this.refreshTimer !== undefined) {
       window.clearTimeout(this.refreshTimer);
     }
     return Promise.resolve();
+  }
+
+  private renderBridgeRuntimeStatus(status: BridgeRuntimeStatus): void {
+    if (!this.bridgeActivityEl) {
+      return;
+    }
+    if (status.compatible) {
+      this.bridgeActivityEl.dataset.state = "draft-saved";
+      this.bridgeActivityEl.setText(
+        `浏览器扩展${status.extensionVersion ? ` v${status.extensionVersion}` : ""}已连接，运行版本匹配。`
+      );
+      return;
+    }
+    if (status.connected) {
+      this.bridgeActivityEl.dataset.state = "failed";
+      this.bridgeActivityEl.setText("浏览器扩展仍为旧运行实例，请在扩展管理页重新加载。");
+      return;
+    }
+    this.bridgeActivityEl.dataset.state = "unknown";
+    this.bridgeActivityEl.setText("浏览器扩展未连接。");
   }
 
   private renderShell(): void {
@@ -547,6 +575,7 @@ export class CrosspostView extends ItemView {
       text: "Obsidian 笔记始终是唯一源稿。Crosspost Studio 只创建或更新平台草稿，不会执行最终发布。"
     });
     this.updatePlatformControls();
+    this.renderBridgeRuntimeStatus(this.plugin.getBridgeRuntimeStatus());
   }
 
   private getActiveFile(): TFile | undefined {
@@ -784,18 +813,32 @@ export class CrosspostView extends ItemView {
       return;
     }
     this.isPublishing = true;
+    this.livePublishFile = file.path;
+    this.liveStatuses.clear();
     button.setAttribute("aria-busy", "true");
     this.updatePublishButton();
     try {
       await this.plugin.publish(file, platforms, this.theme, (update) => {
-        this.renderTargetStatus(update);
+        this.recordLiveStatus(update);
       });
       await this.refreshPreview();
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : "Publishing failed.");
     } finally {
       this.isPublishing = false;
+      this.livePublishFile = undefined;
+      this.liveStatuses.clear();
       button.removeAttribute("aria-busy");
       this.updatePublishButton();
     }
+  }
+
+  private recordLiveStatus(update: PublishStatusUpdate): void {
+    this.liveStatuses.set(update.platform, update);
+    if (this.livePublishFile !== this.getActiveFile()?.path) {
+      return;
+    }
+    this.renderTargetStatus(update);
   }
 
   private renderTargetStatus(
@@ -840,15 +883,23 @@ export class CrosspostView extends ItemView {
       });
     }
     if (update.state === "unknown") {
+      const confirmsSaved = update.platform === "baijiahao";
       const unlock = item.createEl("button", {
         attr: { type: "button" },
         cls: "crosspost-status-action",
-        text: "已人工检查，允许重试"
+        text: confirmsSaved ? "确认草稿已保存" : "已人工检查，允许重试"
       });
       unlock.addEventListener("click", () => {
         void (async () => {
           const file = this.getActiveFile();
           if (!file) {
+            return;
+          }
+          if (confirmsSaved) {
+            await this.plugin.confirmUnknownStateSaved(file, update.platform);
+            this.liveStatuses.delete(update.platform);
+            this.renderStoredStatuses();
+            new Notice("百家号草稿已按人工检查结果标记为已保存。");
             return;
           }
           await this.plugin.clearUnknownState(file, update.platform);
@@ -883,10 +934,49 @@ export class CrosspostView extends ItemView {
         record.updatedAt
       );
     }
+    if (file && this.livePublishFile === file.path) {
+      for (const update of this.liveStatuses.values()) {
+        this.renderTargetStatus(update);
+      }
+    }
     if (count === 0) {
       const empty = this.statusesEl.createDiv({ cls: "crosspost-empty-state" });
       empty.createEl("strong", { text: "还没有草稿任务" });
       empty.createDiv({ text: "保存后会在这里显示每个平台的结果与重试入口。" });
+    }
+  }
+
+  private async retryPlatform(
+    platform: PlatformId,
+    button: HTMLButtonElement
+  ): Promise<void> {
+    if (this.isPublishing) {
+      new Notice(
+        "A publish task is already running. Wait for it to finish before retrying."
+      );
+      return;
+    }
+    const file = this.getActiveFile();
+    if (!file) {
+      return;
+    }
+    this.isPublishing = true;
+    this.livePublishFile = file.path;
+    this.liveStatuses.clear();
+    button.disabled = true;
+    try {
+      await this.plugin.publish(file, [platform], this.theme, (update) => {
+        this.recordLiveStatus(update);
+      });
+      await this.refreshPreview();
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : "Publishing failed.");
+    } finally {
+      this.isPublishing = false;
+      this.livePublishFile = undefined;
+      this.liveStatuses.clear();
+      button.disabled = false;
+      this.updatePublishButton();
     }
   }
 
@@ -959,24 +1049,5 @@ export class CrosspostView extends ItemView {
       this.previewViewport,
       this.previewEl
     ).open();
-  }
-
-  private async retryPlatform(
-    platform: PlatformId,
-    button: HTMLButtonElement
-  ): Promise<void> {
-    const file = this.getActiveFile();
-    if (!file) {
-      return;
-    }
-    button.disabled = true;
-    try {
-      await this.plugin.publish(file, [platform], this.theme, (update) => {
-        this.renderTargetStatus(update);
-      });
-      await this.refreshPreview();
-    } finally {
-      button.disabled = false;
-    }
   }
 }

@@ -33,6 +33,8 @@ const permissionFeedback = document.querySelector<HTMLElement>("#permission-feed
 const permissionSummary = document.querySelector<HTMLElement>("#permission-summary");
 const portInput = document.querySelector<HTMLInputElement>("#port");
 const reconnectButton = document.querySelector<HTMLButtonElement>("#reconnect");
+const restartExtensionButton =
+  document.querySelector<HTMLButtonElement>("#restart-extension");
 const saveButton = document.querySelector<HTMLButtonElement>("#save");
 const versionOutput = document.querySelector<HTMLElement>("#version");
 
@@ -281,6 +283,16 @@ reconnectButton?.addEventListener("click", () => {
       reconnectButton.disabled = !configured;
     }
   })();
+});
+
+restartExtensionButton?.addEventListener("click", () => {
+  restartExtensionButton.disabled = true;
+  restartExtensionButton.textContent = i("connection.restarting");
+  // Delay by one task so Chrome can paint the acknowledgement before this
+  // popup and the stale service worker are both replaced.
+  window.setTimeout(() => {
+    browser.runtime.reload();
+  }, 50);
 });
 
 for (const button of document.querySelectorAll<HTMLButtonElement>("[data-platform]")) {
