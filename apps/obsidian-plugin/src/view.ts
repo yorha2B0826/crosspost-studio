@@ -385,7 +385,8 @@ export class CrosspostView extends ItemView {
     }
 
     const actions = controls.createDiv({ cls: "crosspost-actions" });
-    const themeField = actions.createEl("label", { cls: "crosspost-theme-field" });
+    const previewGroup = actions.createDiv({ cls: "crosspost-action-group" });
+    const themeField = previewGroup.createEl("label", { cls: "crosspost-theme-field" });
     themeField.createSpan({ text: "排版主题" });
     const themeSelect = themeField.createEl("select", {
       attr: { "aria-label": "排版主题" }
@@ -403,7 +404,7 @@ export class CrosspostView extends ItemView {
       void this.refreshPreview();
     });
 
-    const refreshButton = actions.createEl("button", {
+    const refreshButton = previewGroup.createEl("button", {
       attr: { type: "button" },
       cls: "crosspost-secondary-action",
       text: "刷新预览"
@@ -412,7 +413,9 @@ export class CrosspostView extends ItemView {
       void this.refreshPreview();
     });
 
-    this.copyButton = actions.createEl("button", {
+    const publishGroup = actions.createDiv({ cls: "crosspost-action-group" });
+    const copyGroup = publishGroup.createDiv({ cls: "crosspost-copy-group" });
+    this.copyButton = copyGroup.createEl("button", {
       attr: {
         title: "无需微信 API 凭据，复制后可手工粘贴到公众号编辑器",
         type: "button"
@@ -426,7 +429,7 @@ export class CrosspostView extends ItemView {
       }
     });
 
-    const copyHtmlButton = actions.createEl("button", {
+    const copyHtmlButton = copyGroup.createEl("button", {
       attr: {
         title:
           "将生成的 HTML 原样复制为文本，可供微信公众号编辑助手的剪贴板插入功能使用",
@@ -439,7 +442,7 @@ export class CrosspostView extends ItemView {
       void this.copyWeChatHtmlSource(copyHtmlButton);
     });
 
-    this.publishButton = actions.createEl("button", {
+    this.publishButton = publishGroup.createEl("button", {
       attr: { type: "button" },
       cls: "mod-cta crosspost-publish-action"
     });

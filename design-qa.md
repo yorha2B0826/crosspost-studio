@@ -53,3 +53,12 @@ Final result: passed.
 - P0–P3: none。
 
 Final result: passed.
+
+### Addendum 2026-08-21 · 操作按钮分组重排（05/06 实测）
+
+- Reference: `docs/design-audit/2026-08-21/05-actions-light.jpg` / `06-actions-dark.jpg`
+- `view.ts`：renderShell 内将操作按钮包进两个 `crosspost-action-group`（左侧：排版主题 + 刷新预览；右侧：复制分段控件 + 保存主按钮）；两个复制按钮收进 `crosspost-copy-group`。
+- `styles.css`：控制卡改为纵向布局，操作行整行显示并以 border-top 与平台选择区分隔；`space-between` 拉开左右两组；排版主题标签与下拉框同行；复制双按钮合并为带竖分割线的分段控件（去独立边框/圆角，hover 高亮）。
+- 实测确认（亮/暗双主题）：6 个控件单行排布无换行错位，主按钮居最右醒目，分段控件视觉为一体。
+
+Final result: passed.
