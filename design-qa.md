@@ -2,7 +2,7 @@
 
 ## Target
 
-- Reference: `/var/folders/fy/zhzhg73s3rd8hmvt7rb3jr_w0000gn/T/codex-clipboard-472049fc-f946-444b-9d17-95c9b793656f.png`
+- Reference: [`docs/design-audit/2026-07-31/03-obsidian-redesigned.jpg`](docs/design-audit/2026-07-31/03-obsidian-redesigned.jpg)
 - Requested change: align the bottom of the platform preview panel with the bottom of the right-hand status column.
 - Verification surface: Obsidian 1.12.7 using the repository's isolated `test-vault`.
 

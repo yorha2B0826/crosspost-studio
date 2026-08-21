@@ -362,7 +362,7 @@ gh attestation verify main.js -R yorha2B0826/crosspost-studio
 - `https://api.weixin.qq.com/cgi-bin/draft/update`
 
 扩展只申请 `storage`、`scripting`、`tabs` 和 `http://127.0.0.1/*`（读取一次性本地
-资源）；十个浏览器平台的域名都是按需申请的可选权限，不申请 `cookies`。CI 会审计
+资源）；十二个浏览器平台的域名都是按需申请的可选权限，不申请 `cookies`。CI 会审计
 最终 manifest 以及常见密钥特征。
 
 ## 笔记 frontmatter
