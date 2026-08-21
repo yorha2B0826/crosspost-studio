@@ -350,9 +350,10 @@ export class CrosspostView extends ItemView {
     root.addClass("crosspost-view");
 
     const hero = root.createDiv({ cls: "crosspost-hero" });
-    const heroCopy = hero.createDiv();
-    heroCopy.createDiv({ cls: "crosspost-eyebrow", text: "LOCAL-FIRST PUBLISHING" });
-    heroCopy.createEl("h2", { text: "发布工作台" });
+    const heroCopy = hero.createDiv({ cls: "crosspost-hero-copy" });
+    const heroTitle = heroCopy.createDiv({ cls: "crosspost-hero-title" });
+    heroTitle.createDiv({ cls: "crosspost-eyebrow", text: "LOCAL-FIRST PUBLISHING" });
+    heroTitle.createEl("h2", { text: "发布工作台" });
     this.activeFileEl = heroCopy.createDiv({ cls: "crosspost-active-file" });
     hero.createDiv({ cls: "crosspost-draft-badge", text: "仅保存草稿" });
 
@@ -361,7 +362,10 @@ export class CrosspostView extends ItemView {
     targetGroup.createDiv({ cls: "crosspost-control-label", text: "发布到" });
     const platforms = targetGroup.createDiv({ cls: "crosspost-platforms" });
     for (const platform of PLATFORMS) {
-      const chip = platforms.createEl("label", { cls: "crosspost-platform-chip" });
+      const chip = platforms.createEl("label", {
+        attr: { title: `通道：${PLATFORM_CHANNELS[platform]}` },
+        cls: "crosspost-platform-chip"
+      });
       this.platformLabels.set(platform, chip);
       const checkbox = chip.createEl("input", {
         attr: { "aria-label": `将草稿保存到${PLATFORM_LABELS[platform]}` },
@@ -369,9 +373,7 @@ export class CrosspostView extends ItemView {
       });
       this.platformCheckboxes.set(platform, checkbox);
       checkbox.checked = this.selectedPlatforms.has(platform);
-      const copy = chip.createDiv({ cls: "crosspost-platform-copy" });
-      copy.createEl("strong", { text: PLATFORM_LABELS[platform] });
-      copy.createEl("small", { text: PLATFORM_CHANNELS[platform] });
+      chip.createSpan({ cls: "crosspost-platform-name", text: PLATFORM_LABELS[platform] });
       checkbox.addEventListener("change", () => {
         if (checkbox.checked) {
           this.selectedPlatforms.add(platform);

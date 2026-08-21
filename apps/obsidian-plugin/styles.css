@@ -10,15 +10,27 @@
 }
 
 .crosspost-hero {
-  align-items: center;
+  align-items: flex-start;
   display: flex;
   gap: var(--size-4-4);
   justify-content: space-between;
 }
 
+.crosspost-hero-copy {
+  display: grid;
+  gap: var(--size-2-1);
+}
+
+.crosspost-hero-title {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-3);
+}
+
 .crosspost-hero h2 {
   font-size: var(--font-ui-large);
-  margin: var(--size-2-1) 0;
+  margin: 0;
 }
 
 .crosspost-eyebrow,
@@ -72,12 +84,11 @@
   align-items: center;
   background: var(--background-primary);
   border: 1px solid var(--crosspost-border);
-  border-radius: var(--radius-m);
+  border-radius: 999px;
   cursor: pointer;
   display: inline-flex;
   gap: var(--size-4-2);
-  min-width: 8.75rem;
-  padding: var(--size-4-2) var(--size-4-3);
+  padding: calc(var(--size-2-1) + 1px) var(--size-4-3);
   transition:
     border-color 120ms ease,
     background-color 120ms ease,
@@ -98,18 +109,10 @@
   margin: 0;
 }
 
-.crosspost-platform-copy {
-  display: grid;
-  gap: 2px;
-}
-
-.crosspost-platform-copy strong {
+.crosspost-platform-name {
   font-size: var(--font-ui-small);
-}
-
-.crosspost-platform-copy small {
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
 }
 
 .crosspost-actions {
@@ -143,7 +146,7 @@
 .crosspost-main {
   align-items: stretch;
   display: grid;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   gap: var(--size-4-3);
   grid-template-columns: minmax(0, 1fr) minmax(17rem, 21rem);
   min-height: 0;
@@ -210,10 +213,10 @@
   border: 0;
   box-shadow: none;
   color: var(--text-muted);
-  font-size: var(--font-ui-small);
   flex: 0 0 auto;
-  min-width: 5rem;
-  padding: var(--size-2-2) var(--size-4-2);
+  font-size: var(--font-ui-small);
+  padding: var(--size-2-1) var(--size-4-2);
+  white-space: nowrap;
 }
 
 .crosspost-preview-tabs button.is-active {
@@ -264,7 +267,7 @@
   background:
     linear-gradient(var(--background-secondary-alt), var(--background-secondary));
   flex: 1 1 auto;
-  height: clamp(18rem, 34vh, 22rem);
+  min-height: 18rem;
   overflow: auto;
   padding: clamp(var(--size-4-3), 3vw, var(--size-4-6));
 }
@@ -284,6 +287,11 @@
 
 .crosspost-preview-frame[data-viewport="mobile"] {
   max-width: 23.4375rem;
+}
+
+.theme-dark .crosspost-preview-frame {
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
 }
 
 .crosspost-preview {
@@ -348,7 +356,7 @@
 }
 
 .crosspost-preview-loading {
-  color: #6a737d;
+  color: var(--text-muted);
   font-size: var(--font-ui-small);
 }
 
@@ -566,11 +574,6 @@
 .crosspost-css-snippet-field {
   font-family: var(--font-monospace);
   font-size: var(--font-ui-smaller);
-}
-
-.crosspost-css-snippet-field {
-  font-family: var(--font-monospace);
-  font-size: var(--font-ui-smaller);
   margin-top: var(--size-4-2);
   width: 100%;
 }
@@ -610,7 +613,7 @@
   }
 
   .crosspost-platform-chip {
-    flex: 1 1 8.75rem;
+    flex: 1 1 auto;
   }
 
   .crosspost-actions > * {
@@ -643,7 +646,7 @@
   }
 
   .crosspost-preview-stage {
-    height: 20rem;
+    min-height: 20rem;
   }
 
   .crosspost-preview-modal {
