@@ -1,0 +1,58 @@
+export function htmlToPlainText(html: string): string {
+  return new DOMParser().parseFromString(html, "text/html").body.textContent ?? "";
+}
+
+export function normalizedRichText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, "");
+}
+
+function expectedRichTextBlocks(html: string): string[] {
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  const selector = "h1, h2, h3, h4, h5, h6, p, li, th, td, blockquote, pre";
+  return Array.from(parsed.body.querySelectorAll<HTMLElement>(selector))
+    .filter((element) => !element.querySelector(selector))
+    .flatMap((element) => {
+      const clone = element.cloneNode(true) as HTMLElement;
+      for (const media of clone.querySelectorAll(
+        "img, svg, video, iframe, canvas"
+      )) {
+        media.replaceWith(clone.ownerDocument.createTextNode("\0"));
+      }
+      return (clone.textContent ?? "")
+        .split("\0")
+        .map((text) => normalizedRichText(text));
+    })
+    .filter((text) => text.length > 0);
+}
+
+export function richEditorContainsHtmlText(editor: HTMLElement, html: string): boolean {
+  const expected = normalizedRichText(htmlToPlainText(html));
+  const actual = normalizedRichText(editor.textContent ?? "");
+  if (expected.length === 0) {
+    return true;
+  }
+  if (actual.includes(expected)) {
+    return true;
+  }
+  const blocks = expectedRichTextBlocks(html);
+  return blocks.length > 0 && blocks.every((block) => actual.includes(block));
+}
+
+export function richEditorReadbackMismatch(
+  editor: HTMLElement,
+  html: string
+): string {
+  const actual = normalizedRichText(editor.textContent ?? "");
+  const missingBlocks = expectedRichTextBlocks(html).filter(
+    (block) => !actual.includes(block)
+  );
+  const missingSummary = missingBlocks
+    .slice(0, 4)
+    .map((block) => JSON.stringify(block.slice(0, 80)))
+    .join(", ");
+  return `The rich-text editor did not preserve the replacement article body (actualLength=${actual.length}; missingBlocks=${
+    missingSummary || "none"
+  }).`;
+}
