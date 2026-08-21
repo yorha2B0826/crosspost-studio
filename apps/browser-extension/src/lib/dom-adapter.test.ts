@@ -787,8 +787,8 @@ describe("visible editor adapters", () => {
         ${editor}
         <span class="${platform === "bilibili" ? "save-tip" : "draft-status"}">保存中</span>
         ${
-          platform === "bilibili"
-            ? "<button>保存为草稿</button>"
+          platform === "bilibili" || platform === "baijiahao"
+            ? `<button>${platform === "bilibili" ? "保存为草稿" : "存草稿"}</button>`
             : platform === "tencentcloud"
               ? "<button>存草稿</button>"
               : ""
@@ -800,7 +800,11 @@ describe("visible editor adapters", () => {
         )!.textContent =
           platform === "toutiao" ? "已保存至草稿箱" : "草稿已保存";
       };
-      if (platform === "bilibili" || platform === "tencentcloud") {
+      if (
+        platform === "baijiahao" ||
+        platform === "bilibili" ||
+        platform === "tencentcloud"
+      ) {
         document.querySelector("button")!.addEventListener("click", confirmSaved);
       } else {
         window.setTimeout(confirmSaved, 0);
@@ -822,6 +826,656 @@ describe("visible editor adapters", () => {
         .toContain("<strong>粗体</strong>");
     }
   );
+
+  it("replaces an existing Toutiao article through its ProseMirror paste model", async () => {
+    class TestDataTransfer {
+      private readonly values = new Map<string, string>();
+
+      getData(type: string): string {
+        return this.values.get(type) ?? "";
+      }
+
+      setData(type: string, value: string): void {
+        this.values.set(type, value);
+      }
+    }
+    class TestClipboardEvent extends Event {
+      readonly clipboardData: TestDataTransfer;
+
+      constructor(
+        type: string,
+        init: EventInit & { clipboardData: TestDataTransfer }
+      ) {
+        super(type, init);
+        this.clipboardData = init.clipboardData;
+      }
+    }
+    vi.stubGlobal("DataTransfer", TestDataTransfer);
+    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+
+    document.body.innerHTML = `
+      <textarea placeholder="请输入标题">旧标题</textarea>
+      <div class="ProseMirror" contenteditable="true" role="textbox"><p>旧正文</p></div>
+      <span class="draft-status">已保存至草稿箱</span>
+    `;
+    const editor = document.querySelector<HTMLElement>(".ProseMirror")!;
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const html = (event as unknown as TestClipboardEvent).clipboardData.getData(
+        "text/html"
+      );
+      if (!html) {
+        return;
+      }
+      editor.innerHTML = html;
+      document.querySelector(".draft-status")!.textContent = "保存中";
+      editor.dispatchEvent(
+        new InputEvent("input", { bubbles: true, inputType: "insertFromPaste" })
+      );
+      window.setTimeout(() => {
+        document.querySelector(".draft-status")!.textContent = "已保存至草稿箱";
+      }, 0);
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<h2>今日头条新正文</h2><p><strong>完整富文本</strong></p>",
+      jobId: "00000000-0000-4000-8000-000000000049",
+      markdown: "## 今日头条新正文\n\n**完整富文本**",
+      platform: "toutiao",
+      title: "今日头条新标题"
+    });
+
+    expect(result.saved).toBe(true);
+    expect(document.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+      "今日头条新标题"
+    );
+    expect(editor.textContent).toContain("今日头条新正文");
+    expect(editor.textContent).not.toContain("旧正文");
+  });
+
+  it("waits for Toutiao's asynchronously mounted editor before reporting it missing", async () => {
+    class TestDataTransfer {
+      private readonly values = new Map<string, string>();
+
+      getData(type: string): string {
+        return this.values.get(type) ?? "";
+      }
+
+      setData(type: string, value: string): void {
+        this.values.set(type, value);
+      }
+    }
+    class TestClipboardEvent extends Event {
+      readonly clipboardData: TestDataTransfer;
+
+      constructor(
+        type: string,
+        init: EventInit & { clipboardData: TestDataTransfer }
+      ) {
+        super(type, init);
+        this.clipboardData = init.clipboardData;
+      }
+    }
+    vi.stubGlobal("DataTransfer", TestDataTransfer);
+    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+
+    window.setTimeout(() => {
+      document.body.innerHTML = `
+        <textarea placeholder="请输入标题"></textarea>
+        <div class="ProseMirror" contenteditable="true" role="textbox"></div>
+      `;
+      const editor = document.querySelector<HTMLElement>(".ProseMirror")!;
+      editor.addEventListener("paste", (event) => {
+        event.preventDefault();
+        editor.innerHTML = (
+          event as unknown as TestClipboardEvent
+        ).clipboardData.getData("text/html");
+        editor.dispatchEvent(
+          new InputEvent("input", { bubbles: true, inputType: "insertFromPaste" })
+        );
+      });
+    }, 50);
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<p>异步挂载后的正文</p>",
+      jobId: "00000000-0000-4000-8000-000000000052",
+      markdown: "异步挂载后的正文",
+      platform: "toutiao",
+      title: "异步挂载标题"
+    });
+
+    expect(result).toMatchObject({
+      bodyText: "异步挂载后的正文",
+      saved: true
+    });
+    expect(document.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+      "异步挂载标题"
+    );
+  }, 6_000);
+
+  it("accepts Toutiao media markers without dropping text around an inline formula", async () => {
+    class TestDataTransfer {
+      readonly files: File[] = [];
+      readonly items = {
+        add: (file: File): File => {
+          this.files.push(file);
+          return file;
+        }
+      };
+      private readonly values = new Map<string, string>();
+
+      getData(type: string): string {
+        return this.values.get(type) ?? "";
+      }
+
+      setData(type: string, value: string): void {
+        this.values.set(type, value);
+      }
+    }
+    class TestClipboardEvent extends Event {
+      readonly clipboardData: TestDataTransfer;
+
+      constructor(
+        type: string,
+        init: EventInit & { clipboardData: TestDataTransfer }
+      ) {
+        super(type, init);
+        this.clipboardData = init.clipboardData;
+      }
+    }
+    vi.stubGlobal("DataTransfer", TestDataTransfer);
+    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+
+    document.body.innerHTML = `
+      <textarea placeholder="请输入标题"></textarea>
+      <div class="ProseMirror" contenteditable="true" role="textbox"></div>
+      <span class="draft-status">保存中</span>
+    `;
+    const editor = document.querySelector<HTMLElement>(".ProseMirror")!;
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const transfer = (event as unknown as TestClipboardEvent).clipboardData;
+      const html = transfer.getData("text/html");
+      if (html) {
+        editor.innerHTML = html;
+        editor.dispatchEvent(
+          new InputEvent("input", { bubbles: true, inputType: "insertFromPaste" })
+        );
+        return;
+      }
+
+      expect(transfer.files[0]?.type).toBe("image/png");
+      const range = window.getSelection()!.getRangeAt(0);
+      range.deleteContents();
+      const platformMarker = document.createElement("span");
+      platformMarker.textContent = "[图片]";
+      const uploadedImage = document.createElement("img");
+      uploadedImage.src = "https://p3-sign.toutiaoimg.com/crosspost-formula.png";
+      Object.defineProperties(uploadedImage, {
+        complete: { value: true },
+        naturalWidth: { value: 216 }
+      });
+      range.insertNode(platformMarker);
+      platformMarker.after(uploadedImage);
+      editor.dispatchEvent(
+        new InputEvent("input", { bubbles: true, inputType: "insertFromPaste" })
+      );
+      window.setTimeout(() => {
+        document.querySelector(".draft-status")!.textContent = "已保存至草稿箱";
+      }, 0);
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html:
+        '<p>这是一段包含<strong>粗体</strong>和行内公式' +
+        '<img alt="LaTeX" src="data:image/png;base64,iVBORw0KGgo=">的中文正文。</p>',
+      jobId: "00000000-0000-4000-8000-000000000050",
+      markdown: "这是一段包含**粗体**和行内公式 $E=mc^2$ 的中文正文。",
+      platform: "toutiao",
+      title: "今日头条行内公式"
+    });
+
+    expect(result.saved).toBe(true);
+    expect(editor.textContent).toContain("这是一段包含粗体和行内公式");
+    expect(editor.textContent).toContain("的中文正文。");
+    expect(editor.textContent).toContain("[图片]");
+    expect(editor.querySelectorAll("img")).toHaveLength(1);
+  });
+
+  it("returns rich Toutiao readback for server verification when no save label appears", async () => {
+    class TestDataTransfer {
+      private readonly values = new Map<string, string>();
+
+      getData(type: string): string {
+        return this.values.get(type) ?? "";
+      }
+
+      setData(type: string, value: string): void {
+        this.values.set(type, value);
+      }
+    }
+    class TestClipboardEvent extends Event {
+      readonly clipboardData: TestDataTransfer;
+
+      constructor(
+        type: string,
+        init: EventInit & { clipboardData: TestDataTransfer }
+      ) {
+        super(type, init);
+        this.clipboardData = init.clipboardData;
+      }
+    }
+    vi.stubGlobal("DataTransfer", TestDataTransfer);
+    vi.stubGlobal("ClipboardEvent", TestClipboardEvent);
+
+    document.body.innerHTML = `
+      <textarea placeholder="请输入标题"></textarea>
+      <div class="ProseMirror" contenteditable="true" role="textbox"></div>
+    `;
+    const editor = document.querySelector<HTMLElement>(".ProseMirror")!;
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const html = (event as unknown as TestClipboardEvent).clipboardData.getData(
+        "text/html"
+      );
+      editor.innerHTML = html;
+      editor.dispatchEvent(
+        new InputEvent("input", { bubbles: true, inputType: "insertFromPaste" })
+      );
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html:
+        '<h2>自动保存正文</h2><p>等待服务器回读。</p>' +
+        '<p><img src="https://p3-sign.toutiaoimg.com/remote.png"></p>',
+      jobId: "00000000-0000-4000-8000-000000000051",
+      markdown: "## 自动保存正文\n\n等待服务器回读。",
+      platform: "toutiao",
+      title: "今日头条自动保存"
+    });
+
+    expect(result).toMatchObject({
+      bodyText: "自动保存正文等待服务器回读。",
+      imageCount: 1,
+      saved: true
+    });
+    expect(result.message).toContain("verified after reload");
+  }, 6_000);
+
+  it("matches Baijiahao's current editor and requires the explicit draft action", async () => {
+    document.body.innerHTML = `
+      <baijiahao-title id="title-host"></baijiahao-title>
+      <div class="FeEditorApp-_9ddb7e475b559749-editor FeEditorApp-_377c94a778c072b3-editor"
+        data-lexical-editor="true" contenteditable="true"></div>
+      <span class="autosave-status">自动保存</span>
+      <div role="alert"></div>
+      <button>存草稿</button>
+      <button>发布</button>
+    `;
+    const titleRoot = document
+      .querySelector<HTMLElement>("#title-host")!
+      .attachShadow({ mode: "open" });
+    titleRoot.innerHTML = `
+      <div>请输入标题（2 - 64字）</div>
+      <div role="textbox" contenteditable="plaintext-only"
+        data-placeholder="请输入标题（2 - 64字）"></div>
+    `;
+    const saveDraft = document.querySelectorAll<HTMLButtonElement>("button")[0]!;
+    const publish = document.querySelectorAll<HTMLButtonElement>("button")[1]!;
+    const saveClick = vi.fn();
+    const publishClick = vi.fn();
+    saveDraft.addEventListener("click", () => {
+      saveClick();
+      document.querySelector("[role='alert']")!.textContent = "保存草稿成功";
+    });
+    publish.addEventListener("click", publishClick);
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<section><h2>百家号正文</h2><p><strong>粗体</strong></p></section>",
+      jobId: "00000000-0000-4000-8000-000000000025",
+      markdown: "## 百家号正文\n\n**粗体**",
+      platform: "baijiahao",
+      title: "百家号验收标题"
+    });
+
+    expect(result.saved, result.message).toBe(true);
+    expect(saveClick).toHaveBeenCalledOnce();
+    expect(publishClick).not.toHaveBeenCalled();
+    expect(titleRoot.querySelector<HTMLElement>("[role='textbox']")?.textContent)
+      .toBe("百家号验收标题");
+    expect(document.querySelector<HTMLElement>("[data-lexical-editor]")?.innerHTML)
+      .toContain("<strong>粗体</strong>");
+  });
+
+  it("distinguishes Baijiahao's input-box title from its article body", async () => {
+    document.body.innerHTML = `
+      <div class="input-box">
+        <div class="FeEditorApp-_9ddb7e475b559749-placeholder">请输入标题（2 - 64字）</div>
+        <div class="title-inner">
+          <div class="FeEditorApp-_9ddb7e475b559749-editor"
+            contenteditable="true"></div>
+        </div>
+      </div>
+      <div class="ProseMirror" contenteditable="true"></div>
+      <div role="alert"></div>
+      <button>存草稿</button>
+      <button>发布</button>
+    `;
+    document.querySelectorAll<HTMLButtonElement>("button")[0]!.addEventListener(
+      "click",
+      () => {
+        document.querySelector("[role='alert']")!.textContent = "保存草稿成功";
+      }
+    );
+    const publishClick = vi.fn();
+    document.querySelectorAll<HTMLButtonElement>("button")[1]!.addEventListener(
+      "click",
+      publishClick
+    );
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<p>真正的百家号正文</p>",
+      jobId: "00000000-0000-4000-8000-000000000028",
+      markdown: "真正的百家号正文",
+      platform: "baijiahao",
+      title: "input-box 标题"
+    });
+
+    expect(result.saved, result.message).toBe(true);
+    expect(document.querySelector<HTMLElement>(".input-box [contenteditable]")?.textContent)
+      .toBe("input-box 标题");
+    expect(document.querySelector<HTMLElement>(".ProseMirror")?.textContent)
+      .toContain("真正的百家号正文");
+    expect(publishClick).not.toHaveBeenCalled();
+  });
+
+  it("uses Baijiahao's FeEditor title and UEditor article body independently", async () => {
+    document.body.innerHTML = `
+      <div class="input-box">
+        <div class="FeEditorApp-_9ddb7e475b559749-placeholder">请输入标题（2 - 64字）</div>
+      </div>
+      <div class="FeEditorApp-_9ddb7e475b559749-container">
+        <div class="FeEditorApp-_9ddb7e475b559749-editor FeEditorApp-_377c94a778c072b3-editor"
+          contenteditable="true"></div>
+      </div>
+      <div class="editor-outter-wrapper">
+        <div class="ueditor edui-default">
+          <div class="edui-editor edui-default">
+            <div class="edui-body-container"></div>
+          </div>
+        </div>
+      </div>
+      <div role="alert"></div>
+      <button>存草稿</button>
+      <button>发布</button>
+    `;
+    document.querySelectorAll<HTMLButtonElement>("button")[0]!.addEventListener(
+      "click",
+      () => {
+        document.querySelector("[role='alert']")!.textContent = "保存草稿成功";
+      }
+    );
+    const publishClick = vi.fn();
+    document.querySelectorAll<HTMLButtonElement>("button")[1]!.addEventListener(
+      "click",
+      publishClick
+    );
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<h2>UEditor 正文</h2><p>完整文章</p>",
+      jobId: "00000000-0000-4000-8000-000000000029",
+      markdown: "## UEditor 正文\n\n完整文章",
+      platform: "baijiahao",
+      title: "FeEditor 标题"
+    });
+
+    expect(result.saved, result.message).toBe(true);
+    expect(
+      document.querySelector<HTMLElement>("[class*='FeEditorApp-'][class*='-editor']")
+        ?.textContent
+    ).toBe("FeEditor 标题");
+    expect(document.querySelector<HTMLElement>(".edui-body-container")?.innerHTML)
+      .toContain("<h2>UEditor 正文</h2>");
+    expect(publishClick).not.toHaveBeenCalled();
+  });
+
+  it("fills Baijiahao's same-origin UEditor iframe body", async () => {
+    document.body.innerHTML = `
+      <div class="input-box">
+        <div class="FeEditorApp-_9ddb7e475b559749-placeholder">请输入标题（2 - 64字）</div>
+      </div>
+      <div class="FeEditorApp-_9ddb7e475b559749-container">
+        <div class="FeEditorApp-_9ddb7e475b559749-editor"
+          contenteditable="true"></div>
+      </div>
+      <div class="editor-outter-wrapper">
+        <div class="ueditor edui-default">
+          <div class="edui-editor edui-default">
+            <iframe class="edui-editor-iframeholder"></iframe>
+          </div>
+        </div>
+      </div>
+      <div role="alert"></div>
+      <button>存草稿</button>
+    `;
+    const editorFrame = document.querySelector<HTMLIFrameElement>(
+      ".edui-editor-iframeholder"
+    )!;
+    const editorBody = editorFrame.contentDocument!.body;
+    editorBody.setAttribute("contenteditable", "true");
+    let decoratedByUeditor = false;
+    editorBody.addEventListener("input", () => {
+      if (decoratedByUeditor) {
+        return;
+      }
+      const heading = editorBody.querySelector("h2");
+      if (heading) {
+        heading.after(
+          editorBody.ownerDocument.createTextNode("UEditor 辅助节点")
+        );
+        decoratedByUeditor = true;
+      }
+    });
+    document.querySelector("button")!.addEventListener("click", () => {
+      document.querySelector("[role='alert']")!.textContent = "保存草稿成功";
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<h2>iframe 正文</h2><p>完整文章</p>",
+      jobId: "00000000-0000-4000-8000-000000000030",
+      markdown: "## iframe 正文\n\n完整文章",
+      platform: "baijiahao",
+      title: "iframe UEditor 标题"
+    });
+
+    expect(result.saved, result.message).toBe(true);
+    expect(
+      document.querySelector<HTMLElement>("[class*='FeEditorApp-'][class*='-editor']")
+        ?.textContent
+    ).toBe("iframe UEditor 标题");
+    expect(editorBody.innerHTML).toContain("<h2>iframe 正文</h2>");
+    expect(editorBody.textContent).toContain("UEditor 辅助节点");
+  });
+
+  it("accepts Baijiahao's visually normal readback and uploads its iframe image", async () => {
+    class FrameDataTransfer {
+      private readonly values = new Map<string, string>();
+      readonly items = { add: vi.fn() };
+
+      getData(type: string): string {
+        return this.values.get(type) ?? "";
+      }
+
+      setData(type: string, value: string): void {
+        this.values.set(type, value);
+      }
+    }
+    class FrameClipboardEvent extends Event {
+      readonly clipboardData: FrameDataTransfer;
+
+      constructor(
+        type: string,
+        init: EventInit & { clipboardData: FrameDataTransfer }
+      ) {
+        super(type, init);
+        this.clipboardData = init.clipboardData;
+      }
+    }
+    vi.stubGlobal("DataTransfer", FrameDataTransfer);
+    vi.stubGlobal("ClipboardEvent", FrameClipboardEvent);
+
+    document.body.innerHTML = `
+      <div class="input-box">
+        <div class="FeEditorApp-placeholder">请输入标题（2 - 64字）</div>
+      </div>
+      <div class="FeEditorApp-container">
+        <div class="FeEditorApp-editor" contenteditable="true"></div>
+      </div>
+      <div class="editor-outter-wrapper">
+        <div class="ueditor"><div class="edui-editor">
+          <iframe class="edui-editor-iframeholder"></iframe>
+        </div></div>
+      </div>
+      <div role="alert"></div>
+      <button>存草稿</button>
+    `;
+    const editorFrame = document.querySelector<HTMLIFrameElement>(
+      ".edui-editor-iframeholder"
+    )!;
+    const editorBody = editorFrame.contentDocument!.body;
+    editorBody.setAttribute("contenteditable", "true");
+    const interceptedRichPaste = vi.fn();
+    editorBody.addEventListener("paste", (event) => {
+      const transfer = (event as unknown as FrameClipboardEvent).clipboardData;
+      event.preventDefault();
+      const richHtml = transfer.getData("text/html");
+      if (richHtml) {
+        interceptedRichPaste();
+        const brokenImage = editorBody.ownerDocument.createElement("img");
+        brokenImage.src = "data:image/png;base64,iVBORw0KGgo=";
+        editorBody.replaceChildren(brokenImage);
+      } else {
+        const paragraph = editorBody.querySelector("p");
+        if (paragraph) {
+          const hiddenHelper = editorBody.ownerDocument.createElement("span");
+          hiddenHelper.style.display = "none";
+          hiddenHelper.textContent = "UEditor 辅助文本";
+          paragraph.replaceChildren(
+            editorBody.ownerDocument.createTextNode("iframe "),
+            hiddenHelper,
+            editorBody.ownerDocument.createTextNode("图片正文")
+          );
+        }
+        const uploadedImage = editorBody.ownerDocument.createElement("img");
+        uploadedImage.src = "https://img.example.test/baijiahao-uploaded.png";
+        Object.defineProperties(uploadedImage, {
+          complete: { value: true },
+          naturalWidth: { value: 640 }
+        });
+        editorBody.append(uploadedImage);
+      }
+      editorBody.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    });
+    document.querySelector("button")!.addEventListener("click", () => {
+      document.querySelector("[role='alert']")!.textContent = "保存草稿成功";
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html:
+        '<p>iframe 图片正文</p><img alt="测试图" src="data:image/png;base64,iVBORw0KGgo=">',
+      jobId: "00000000-0000-4000-8000-000000000031",
+      markdown: "iframe 图片正文",
+      platform: "baijiahao",
+      title: "iframe 图片标题"
+    });
+
+    expect(result.saved, result.message).toBe(true);
+    expect(interceptedRichPaste).not.toHaveBeenCalled();
+    expect(editorBody.textContent).toContain("UEditor 辅助文本");
+    expect(editorBody.textContent).not.toContain("CROSSPOST_IMAGE_");
+    expect(editorBody.querySelector("img")?.src).toBe(
+      "https://img.example.test/baijiahao-uploaded.png"
+    );
+  });
+
+  it("activates Baijiahao's lazy title control without reusing its body editor", async () => {
+    document.body.innerHTML = `
+      <div id="title-placeholder">请输入标题（2 - 64字）</div>
+      <baijiahao-title id="lazy-title"></baijiahao-title>
+      <div class="article-editor">
+        <div class="FeEditorApp-editor" contenteditable="true"></div>
+      </div>
+      <div role="alert"></div>
+      <button>存草稿</button>
+    `;
+    const titleHost = document.querySelector<HTMLElement>("#lazy-title")!;
+    const titleRoot = titleHost.attachShadow({ mode: "open" });
+    document.querySelector("#title-placeholder")!.addEventListener("click", () => {
+      titleRoot.innerHTML =
+        '<textarea placeholder="请输入标题（2 - 64字）"></textarea>';
+    });
+    document.querySelector("button")!.addEventListener("click", () => {
+      document.querySelector("[role='alert']")!.textContent = "保存草稿成功";
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<p>正文不能被当成标题</p>",
+      jobId: "00000000-0000-4000-8000-000000000026",
+      markdown: "正文不能被当成标题",
+      platform: "baijiahao",
+      title: "延迟标题控件"
+    });
+
+    expect(result.saved, result.message).toBe(true);
+    expect(titleRoot.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+      "延迟标题控件"
+    );
+    expect(document.querySelector(".FeEditorApp-editor")?.textContent).toContain(
+      "正文不能被当成标题"
+    );
+  });
+
+  it("finds Baijiahao's title control inside a same-origin component frame", async () => {
+    document.body.innerHTML = `
+      <iframe id="title-frame"></iframe>
+      <div class="article-editor">
+        <div class="FeEditorApp-editor" contenteditable="true"></div>
+      </div>
+      <div role="alert"></div>
+      <button>存草稿</button>
+    `;
+    const titleDocument = document.querySelector<HTMLIFrameElement>(
+      "#title-frame"
+    )!.contentDocument!;
+    titleDocument.body.innerHTML =
+      '<textarea placeholder="请输入标题（2 - 64字）"></textarea>';
+    vi.spyOn(
+      titleDocument.querySelector<HTMLTextAreaElement>("textarea")!,
+      "getClientRects"
+    ).mockReturnValue({
+      0: {} as DOMRect,
+      item: () => null,
+      length: 1
+    } as unknown as DOMRectList);
+    document.querySelector("button")!.addEventListener("click", () => {
+      document.querySelector("[role='alert']")!.textContent = "保存草稿成功";
+    });
+
+    const result = await applyDraftToVisibleEditor({
+      html: "<p>跨 frame 正文</p>",
+      jobId: "00000000-0000-4000-8000-000000000027",
+      markdown: "跨 frame 正文",
+      platform: "baijiahao",
+      title: "跨 frame 标题"
+    });
+
+    expect(result.saved, result.message).toBe(true);
+    expect(titleDocument.querySelector<HTMLTextAreaElement>("textarea")?.value)
+      .toBe("跨 frame 标题");
+    expect(document.querySelector(".FeEditorApp-editor")?.textContent).toContain(
+      "跨 frame 正文"
+    );
+  });
 
   it("uses rendered text for a rich editor's plain-text paste fallback", async () => {
     class TestDataTransfer {
@@ -853,6 +1507,7 @@ describe("visible editor adapters", () => {
       <textarea placeholder="请输入标题"></textarea>
       <div class="ProseMirror" contenteditable="true" role="textbox"></div>
       <span class="draft-status">保存中</span>
+      <button>存草稿</button>
     `;
     const editor = document.querySelector<HTMLElement>("[contenteditable]")!;
     editor.addEventListener("paste", (event) => {
@@ -860,7 +1515,9 @@ describe("visible editor adapters", () => {
       const transfer = (event as unknown as TestClipboardEvent).clipboardData;
       editor.textContent = transfer.getData("text/plain");
       editor.dispatchEvent(new InputEvent("input", { bubbles: true }));
-      document.querySelector(".draft-status")!.textContent = "草稿已保存";
+    });
+    document.querySelector("button")!.addEventListener("click", () => {
+      document.querySelector(".draft-status")!.textContent = "保存草稿成功";
     });
 
     const result = await applyDraftToVisibleEditor({
@@ -884,6 +1541,7 @@ describe("visible editor adapters", () => {
         <figure><img src="https://img.example.test/old.png"></figure>
       </div>
       <span class="draft-status">保存中</span>
+      <button>存草稿</button>
     `;
     const editor = document.querySelector<HTMLElement>("[contenteditable]")!;
     let deleteInputCount = 0;
@@ -899,8 +1557,11 @@ describe("visible editor adapters", () => {
         return;
       }
       if (editor.textContent?.includes("新正文")) {
-        document.querySelector(".draft-status")!.textContent = "草稿已保存";
+        document.querySelector(".draft-status")!.textContent = "内容已自动保存";
       }
+    });
+    document.querySelector("button")!.addEventListener("click", () => {
+      document.querySelector(".draft-status")!.textContent = "保存草稿成功";
     });
 
     const result = await applyDraftToVisibleEditor({

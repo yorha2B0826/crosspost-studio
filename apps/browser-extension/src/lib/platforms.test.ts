@@ -8,6 +8,7 @@ import {
   isExpectedDraftUrl,
   isStableDraftUrl,
   NEW_DRAFT_URLS,
+  selectPreferredDraftTab,
   waitForStableDraftUrl
 } from "./platforms";
 
@@ -61,6 +62,35 @@ describe("Blog Park draft URL canonicalization", () => {
 });
 
 describe("platform draft URLs", () => {
+  it("prefers the active editor when duplicate platform tabs are open", () => {
+    expect(
+      selectPreferredDraftTab([
+        {
+          active: false,
+          id: 10,
+          lastAccessed: 200,
+          url: "https://mp.toutiao.com/profile_v4/graphic/publish"
+        },
+        {
+          active: true,
+          id: 11,
+          lastAccessed: 100,
+          url: "https://mp.toutiao.com/profile_v4/graphic/publish"
+        }
+      ])?.id
+    ).toBe(11);
+  });
+
+  it("uses the most recently accessed editor when no matching tab is active", () => {
+    expect(
+      selectPreferredDraftTab([
+        { active: false, id: 20, lastAccessed: 100, url: "https://example.com/a" },
+        { active: false, id: 21, lastAccessed: 300, url: "https://example.com/b" },
+        { active: true, lastAccessed: 400, url: "https://example.com/invalid" }
+      ])?.id
+    ).toBe(21);
+  });
+
   it("treats a platform-normalized trailing slash as the same draft tab", () => {
     expect(
       areEquivalentDraftUrls(

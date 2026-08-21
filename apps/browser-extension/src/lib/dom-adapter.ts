@@ -15,12 +15,15 @@ interface PlatformDomDefinition {
   markdownImageDialog?: MarkdownImageDialogDefinition;
   nativeRichImageUpload?: boolean;
   postInsertSettleMs?: number;
+  preferDirectDomInsert?: boolean;
   replaceExistingRichContentByPaste?: boolean;
+  requireSaveEvidenceAfterAction?: boolean;
   richImageDropFallback?: boolean;
   rewriteMarkdownAfterDialogUploads?: boolean;
   saveActionText?: string | string[];
   saveEvidenceSelectors: string[];
   saveEvidenceText: RegExp;
+  skipFinalRichTextReadback?: boolean;
   titleSelectors: string[];
 }
 
@@ -53,6 +56,20 @@ class MarkdownImageDialogUnavailableError extends Error {}
 
 const ZHIHU_IMPORT_FAILURE_IMAGE =
   "v2-4f89913ab376925632be5823a038f938";
+const BAIJIAHAO_ADAPTER_REVISION = "feeditor-ueditor-v7";
+const BAIJIAHAO_EXPLICIT_TITLE_SELECTORS = [
+  "textarea[placeholder^='请输入标题']",
+  "input[placeholder^='请输入标题']",
+  "[contenteditable]:not([contenteditable='false'])[data-placeholder*='请输入标题']",
+  "[contenteditable]:not([contenteditable='false'])[aria-label*='标题']",
+  ".input-box > [contenteditable]:not([contenteditable='false'])",
+  ".input-box [contenteditable]:not([contenteditable='false'])",
+  "[class*='placeholder'] + [contenteditable]:not([contenteditable='false'])"
+];
+const BAIJIAHAO_FEEDITOR_TITLE_SELECTORS = [
+  "[class*='FeEditorApp-'][class*='-container'] [class*='FeEditorApp-'][class*='-editor'][contenteditable]:not([contenteditable='false'])",
+  "[class*='FeEditorApp-'][class*='-editor'][contenteditable]:not([contenteditable='false'])"
+];
 
 const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
   "51cto": {
@@ -85,24 +102,46 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
     ]
   },
   baijiahao: {
+    blurAfterInsert: true,
     contentMode: "rich-html",
+    editorReadyTimeoutMs: 8_000,
     editorSelectors: [
+      ".edui-body-container[contenteditable='true']",
       ".ProseMirror[contenteditable='true']",
       "[contenteditable='true'][role='textbox']",
       "[data-slate-editor='true'][contenteditable='true']",
-      ".edui-body-container[contenteditable='true']",
-      ".public-DraftEditor-content[contenteditable='true']"
+      "[data-lexical-editor='true'][contenteditable='true']",
+      "[contenteditable='true'][data-placeholder*='请输入正文']",
+      ".edui-body-container",
+      ".editor-outter-wrapper iframe",
+      ".ueditor iframe",
+      ".edui-editor iframe",
+      ".public-DraftEditor-content[contenteditable='true']",
+      ".ql-editor[contenteditable='true']",
+      "[class*='editor'] [contenteditable='true']"
     ],
     imageStrategy: "rich-paste",
+    postInsertSettleMs: 500,
+    preferDirectDomInsert: true,
+    requireSaveEvidenceAfterAction: true,
+    saveActionText: "存草稿",
     saveEvidenceSelectors: [
+      "[role='alert']",
+      "[class*='toast']",
+      "[class*='message']",
       "[class*='save-status']",
       "[class*='draft-status']",
-      "[class*='autosave']",
       ".ant-message-success",
       "[role='status']"
     ],
-    saveEvidenceText: /草稿已保存|草稿保存成功|保存成功|自动保存成功|已保存/,
+    saveEvidenceText:
+      /存草稿成功|保存草稿成功|草稿已保存|保存成功|已保存至草稿箱/,
+    skipFinalRichTextReadback: true,
     titleSelectors: [
+      ...BAIJIAHAO_EXPLICIT_TITLE_SELECTORS,
+      ...BAIJIAHAO_FEEDITOR_TITLE_SELECTORS,
+      "[class*='title'] [contenteditable]:not([contenteditable='false'])",
+      "[class*='Title'] [contenteditable]:not([contenteditable='false'])",
       "input[placeholder*='标题']",
       "textarea[placeholder*='标题']",
       "input[class*='title']",
@@ -386,7 +425,10 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
     ]
   },
   toutiao: {
+    blurAfterInsert: true,
     contentMode: "rich-html",
+    deferSaveEvidenceToReload: true,
+    editorReadyTimeoutMs: 10_000,
     editorSelectors: [
       ".ProseMirror[contenteditable='true']",
       "[contenteditable='true'][role='textbox']",
@@ -395,6 +437,8 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
       "[class*='editor'] [contenteditable='true']"
     ],
     imageStrategy: "rich-paste",
+    postInsertSettleMs: 1_000,
+    replaceExistingRichContentByPaste: true,
     saveEvidenceSelectors: [
       "[class*='save-status']",
       "[class*='draft-status']",
@@ -437,18 +481,84 @@ const DEFINITIONS: Record<BrowserPlatform, PlatformDomDefinition> = {
   }
 };
 
+function queryAllDeep<T extends Element>(
+  selector: string,
+  root: ParentNode = document
+): T[] {
+  const matches = Array.from(root.querySelectorAll<T>(selector));
+  for (const host of root.querySelectorAll<HTMLElement>("*")) {
+    if (host.shadowRoot) {
+      matches.push(...queryAllDeep<T>(selector, host.shadowRoot));
+    }
+  }
+  for (const frame of root.querySelectorAll<HTMLIFrameElement>("iframe")) {
+    try {
+      if (frame.contentDocument) {
+        matches.push(...queryAllDeep<T>(selector, frame.contentDocument));
+      }
+    } catch {
+      // Cross-origin frames are intentionally inaccessible to the adapter.
+    }
+  }
+  return matches;
+}
+
 function queryFirst(
   selectors: string[],
   excluded?: HTMLElement
 ): HTMLElement | undefined {
   for (const selector of selectors) {
-    for (const element of document.querySelectorAll<HTMLElement>(selector)) {
+    for (const element of queryAllDeep<HTMLElement>(selector)) {
       if (element !== excluded && element.getClientRects().length > 0) {
         return element;
       }
     }
   }
   return undefined;
+}
+
+function resolveBaijiahaoEditor(title?: HTMLElement): HTMLElement | undefined {
+  const directEditor = queryFirst(
+    [
+      ".edui-body-container[contenteditable]:not([contenteditable='false'])",
+      ".ProseMirror[contenteditable='true']",
+      "[contenteditable='true'][data-placeholder*='请输入正文']",
+      "[data-slate-editor='true'][contenteditable='true']",
+      "[data-lexical-editor='true'][contenteditable='true']",
+      ".public-DraftEditor-content[contenteditable='true']",
+      ".ql-editor[contenteditable='true']"
+    ],
+    title
+  );
+  if (directEditor) {
+    return directEditor;
+  }
+
+  for (const frame of queryAllDeep<HTMLIFrameElement>(
+    ".editor-outter-wrapper iframe, .ueditor iframe, .edui-editor iframe"
+  )) {
+    if (frame.getClientRects().length === 0) {
+      continue;
+    }
+    try {
+      const body = frame.contentDocument?.body;
+      if (body && body !== title) {
+        return body;
+      }
+    } catch {
+      // Baijiahao's editor iframe is expected to be same-origin. If that changes,
+      // continue to the visible fallback editor instead of touching a private API.
+    }
+  }
+
+  return queryFirst(
+    [
+      ".edui-body-container",
+      "[contenteditable='true'][role='textbox']",
+      "[class*='editor'] [contenteditable='true']"
+    ],
+    title
+  );
 }
 
 function queryDialogInput(
@@ -469,7 +579,7 @@ function queryExactVisibleText(
   value: string,
   root: ParentNode = document
 ): HTMLElement | undefined {
-  return Array.from(root.querySelectorAll<HTMLElement>("*"))
+  return queryAllDeep<HTMLElement>("*", root)
     .find(
     (element) =>
       element.childElementCount === 0 &&
@@ -523,9 +633,43 @@ async function resolveTitle(
   definition: PlatformDomDefinition,
   expectedTitle: string
 ): Promise<HTMLElement | undefined> {
-  const existing = queryFirst(definition.titleSelectors);
-  if (existing || platform !== "csdn") {
+  const existing = queryFirst(
+    platform === "baijiahao"
+      ? BAIJIAHAO_EXPLICIT_TITLE_SELECTORS
+      : definition.titleSelectors
+  );
+  if (existing) {
     return existing;
+  }
+  if (platform === "baijiahao") {
+    const marker = queryVisibleTextPrefix("请输入标题");
+    marker?.click();
+    if (
+      marker &&
+      (await waitFor(
+        () => Boolean(queryFirst(BAIJIAHAO_EXPLICIT_TITLE_SELECTORS)),
+        1_000
+      ))
+    ) {
+      return queryFirst(BAIJIAHAO_EXPLICIT_TITLE_SELECTORS);
+    }
+    const knownEditor = resolveBaijiahaoEditor();
+    const nearbyTitle = queryEditableNearVisibleText(
+      "请输入标题",
+      knownEditor
+    );
+    if (nearbyTitle) {
+      return nearbyTitle;
+    }
+    const hasUeditorShell = Boolean(
+      queryFirst([".editor-outter-wrapper", ".ueditor", ".edui-editor"])
+    );
+    return hasUeditorShell
+      ? queryFirst(BAIJIAHAO_FEEDITOR_TITLE_SELECTORS, knownEditor)
+      : undefined;
+  }
+  if (platform !== "csdn") {
+    return undefined;
   }
   const activator =
     queryExactVisibleText("【无标题】") ?? queryExactVisibleText(expectedTitle);
@@ -537,11 +681,49 @@ async function resolveTitle(
   return queryFirst(definition.titleSelectors);
 }
 
+function queryVisibleTextPrefix(value: string): HTMLElement | undefined {
+  return queryAllDeep<HTMLElement>("*").find(
+    (element) =>
+      element.childElementCount === 0 &&
+      element.textContent?.trim().startsWith(value) &&
+      element.getClientRects().length > 0
+  );
+}
+
+function queryEditableNearVisibleText(
+  value: string,
+  excluded?: HTMLElement
+): HTMLElement | undefined {
+  const markers = queryAllDeep<HTMLElement>("*").filter(
+    (element) =>
+      element.childElementCount === 0 &&
+      element.textContent?.trim().startsWith(value) &&
+      element.getClientRects().length > 0
+  );
+  for (const marker of markers) {
+    let container = marker.parentElement;
+    for (let depth = 0; container && depth < 4; depth += 1) {
+      const candidates = container.querySelectorAll<HTMLElement>(
+        "input, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox']"
+      );
+      for (const candidate of candidates) {
+        if (
+          candidate !== marker &&
+          candidate !== excluded &&
+          candidate.getClientRects().length > 0
+        ) {
+          return candidate;
+        }
+      }
+      container = container.parentElement;
+    }
+  }
+  return undefined;
+}
+
 function summarizeVisibleEditors(): string {
-  const controls = Array.from(
-    document.querySelectorAll<HTMLElement>(
-      "input, textarea, [contenteditable='true']"
-    )
+  const controls = queryAllDeep<HTMLElement>(
+    "input, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox']"
   )
     .filter((element) => element.getClientRects().length > 0)
     .slice(0, 6)
@@ -553,12 +735,103 @@ function summarizeVisibleEditors(): string {
         .join("");
       const placeholder = element.getAttribute("placeholder");
       const label = element.getAttribute("aria-label");
-      const hint = placeholder ?? label;
+      const dataPlaceholder = element.getAttribute("data-placeholder");
+      const contentEditable = element.getAttribute("contenteditable");
+      const role = element.getAttribute("role");
+      const hint = placeholder ?? dataPlaceholder ?? label;
       return `${element.localName}${id}${classes}${
         hint ? `[hint=${JSON.stringify(hint.slice(0, 80))}]` : ""
+      }${contentEditable === null ? "" : `[contenteditable=${JSON.stringify(contentEditable)}]`}${
+        role ? `[role=${JSON.stringify(role)}]` : ""
       }`;
     });
   return controls.length > 0 ? controls.join(", ") : "none";
+}
+
+function summarizeBaijiahaoTitleRegion(): string {
+  const markers = queryAllDeep<HTMLElement>("*")
+    .filter(
+      (element) =>
+        element.childElementCount === 0 &&
+        element.textContent?.trim().startsWith("请输入标题") &&
+        element.getClientRects().length > 0
+    )
+    .slice(0, 2);
+  const describe = (element: HTMLElement): string => {
+    const id = element.id ? `#${element.id}` : "";
+    const classes = Array.from(element.classList)
+      .slice(0, 4)
+      .map((className) => `.${className}`)
+      .join("");
+    const attributes = [
+      "aria-label",
+      "contenteditable",
+      "data-placeholder",
+      "placeholder",
+      "role",
+      "tabindex"
+    ]
+      .flatMap((name) => {
+        const value = element.getAttribute(name);
+        return value === null ? [] : [`${name}=${JSON.stringify(value.slice(0, 80))}`];
+      })
+      .join(" ");
+    const text =
+      element.childElementCount === 0
+        ? (element.textContent?.trim() ?? "").slice(0, 80)
+        : "";
+    return `${element.localName}${id}${classes}${attributes ? `[${attributes}]` : ""}${
+      text ? `{text=${JSON.stringify(text)}}` : ""
+    }`;
+  };
+  if (markers.length === 0) {
+    return "marker=none";
+  }
+  return markers
+    .map((marker) => {
+      const parent = marker.parentElement;
+      const siblings = parent
+        ? Array.from(parent.children)
+            .slice(0, 12)
+            .map((element) => describe(element as HTMLElement))
+            .join(",")
+        : "none";
+      return `marker=${describe(marker)}; parent=${
+        parent ? describe(parent) : "none"
+      }; siblings=${siblings}`;
+    })
+    .join(" | ");
+}
+
+function summarizeBaijiahaoEditorCandidates(title?: HTMLElement): string {
+  const compact = (element: HTMLElement): string => {
+    const classes = Array.from(element.classList)
+      .slice(0, 3)
+      .map((className) =>
+        className.replace(/[a-f\d]{12,}/gi, "…")
+      )
+      .join(".");
+    const contentEditable = element.getAttribute("contenteditable");
+    const role = element.getAttribute("role");
+    return `${element.localName}${classes ? `.${classes}` : ""}${
+      contentEditable === null ? "" : `[ce=${JSON.stringify(contentEditable)}]`
+    }${role ? `[role=${JSON.stringify(role)}]` : ""}{children=${
+      element.childElementCount
+    }}`;
+  };
+  const candidates = queryAllDeep<HTMLElement>(
+    "iframe, [class*='editor'], [class*='Editor'], [class*='content'], [class*='Content']"
+  )
+    .filter(
+      (element) =>
+        element !== title &&
+        !element.contains(title ?? null) &&
+        !title?.contains(element) &&
+        element.getClientRects().length > 0
+    )
+    .slice(0, 18)
+    .map(compact);
+  return candidates.length > 0 ? candidates.join(",") : "none";
 }
 
 function isTextArea(element: Element): element is HTMLTextAreaElement {
@@ -572,10 +845,11 @@ function isTextInput(
 }
 
 function isEditableTitle(element: HTMLElement): boolean {
+  const contentEditable = element.getAttribute("contenteditable");
   return (
     isTextInput(element) ||
     element.isContentEditable ||
-    element.getAttribute("contenteditable") === "true"
+    (contentEditable !== null && contentEditable !== "false")
   );
 }
 
@@ -603,20 +877,35 @@ function setTitleValue(element: HTMLElement, value: string): void {
   element.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+function focusEditor(editor: HTMLElement): void {
+  editor.focus();
+  if (editor.ownerDocument.activeElement === editor) {
+    return;
+  }
+  if (
+    editor.localName === "body" ||
+    editor.classList.contains("edui-body-container")
+  ) {
+    editor.setAttribute("tabindex", "-1");
+    editor.focus();
+  }
+}
+
 function selectEditorContents(editor: HTMLElement): void {
-  const selection = window.getSelection();
+  const editorDocument = editor.ownerDocument;
+  const selection = editorDocument.defaultView?.getSelection();
   if (!selection) {
     return;
   }
-  const range = document.createRange();
+  const range = editorDocument.createRange();
   range.selectNodeContents(editor);
   selection.removeAllRanges();
   selection.addRange(range);
-  document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+  editorDocument.dispatchEvent(new Event("selectionchange", { bubbles: true }));
 }
 
 function selectionIsInside(editor: HTMLElement): boolean {
-  const anchor = window.getSelection()?.anchorNode;
+  const anchor = editor.ownerDocument.defaultView?.getSelection()?.anchorNode;
   return Boolean(
     anchor && (anchor === editor || editor.contains(anchor))
   );
@@ -757,19 +1046,20 @@ export function htmlToPlainText(html: string): string {
 function replaceEditorHtml(editor: HTMLElement, html: string): void {
   const parsed = new DOMParser().parseFromString(html, "text/html");
   const nodes = Array.from(parsed.body.childNodes, (node) =>
-    document.importNode(node, true)
+    editor.ownerDocument.importNode(node, true)
   );
   editor.replaceChildren(...nodes);
 }
 
 function findTokenRange(editor: HTMLElement, token: string): Range | undefined {
-  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  const editorDocument = editor.ownerDocument;
+  const walker = editorDocument.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
   let node = walker.nextNode();
   while (node) {
     const text = node.textContent ?? "";
     const start = text.indexOf(token);
     if (start >= 0) {
-      const range = document.createRange();
+      const range = editorDocument.createRange();
       range.setStart(node, start);
       range.setEnd(node, start + token.length);
       return range;
@@ -865,14 +1155,15 @@ function selectImageToken(
   token: string
 ): { range: Range; selection: Selection } | undefined {
   const range = findTokenRange(editor, token);
-  const selection = window.getSelection();
+  const editorDocument = editor.ownerDocument;
+  const selection = editorDocument.defaultView?.getSelection();
   if (!range || !selection) {
     return undefined;
   }
-  editor.focus();
+  focusEditor(editor);
   selection.removeAllRanges();
   selection.addRange(range);
-  document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+  editorDocument.dispatchEvent(new Event("selectionchange", { bubbles: true }));
   return { range, selection };
 }
 
@@ -912,7 +1203,7 @@ async function pasteImageAtToken(
     }
     const remainingToken = findTokenRange(currentEditor, image.token);
     if (remainingToken) {
-      const selection = window.getSelection();
+      const selection = currentEditor.ownerDocument.defaultView?.getSelection();
       selection?.removeAllRanges();
       selection?.addRange(remainingToken);
       remainingToken.deleteContents();
@@ -1463,9 +1754,10 @@ async function uploadContenteditableMarkdownImagesWithDialog(
       throw new Error("The Markdown editor was replaced during an image upload.");
     }
     const previousUrls = httpUrlCounts(markdownEditorVisibleText(editor));
-    editor.focus();
-    const selection = window.getSelection();
-    const range = document.createRange();
+    focusEditor(editor);
+    const editorDocument = editor.ownerDocument;
+    const selection = editorDocument.defaultView?.getSelection();
+    const range = editorDocument.createRange();
     range.selectNodeContents(editor);
     range.collapse(false);
     selection?.removeAllRanges();
@@ -1561,11 +1853,13 @@ async function uploadMarkdownImageAtTokenWithDialog(
       throw new Error("The uploaded image could not replace its Markdown marker.");
     }
     const alt = image.alt || "crosspost image";
-    const selection = window.getSelection();
+    const selection = current.ownerDocument.defaultView?.getSelection();
     if (selection?.rangeCount) {
       const range = selection.getRangeAt(0);
       range.deleteContents();
-      range.insertNode(document.createTextNode(`![${alt}](${uploadedUrl})`));
+      range.insertNode(
+        current.ownerDocument.createTextNode(`![${alt}](${uploadedUrl})`)
+      );
       dispatchEditorInput(current, "insertFromPaste");
     }
   }
@@ -1672,14 +1966,15 @@ function selectMarkdownToken(editor: HTMLElement, token: string): boolean {
     return true;
   }
   const range = findTokenRange(editor, token);
-  const selection = window.getSelection();
+  const editorDocument = editor.ownerDocument;
+  const selection = editorDocument.defaultView?.getSelection();
   if (!range || !selection) {
     return false;
   }
-  editor.focus();
+  focusEditor(editor);
   selection.removeAllRanges();
   selection.addRange(range);
-  document.dispatchEvent(new Event("selectionchange", { bubbles: true }));
+  editorDocument.dispatchEvent(new Event("selectionchange", { bubbles: true }));
   return true;
 }
 
@@ -1733,13 +2028,58 @@ function hasEditorContent(editor: HTMLElement): boolean {
 }
 
 function normalizedRichText(value: string): string {
-  return value.replace(/\s+/g, "");
+  return value
+    .normalize("NFKC")
+    .replace(/[\s\u200b-\u200d\u2060\ufeff]+/g, "");
+}
+
+function expectedRichTextBlocks(html: string): string[] {
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  const selector = "h1, h2, h3, h4, h5, h6, p, li, th, td, blockquote, pre";
+  return Array.from(parsed.body.querySelectorAll<HTMLElement>(selector))
+    .filter((element) => !element.querySelector(selector))
+    .flatMap((element) => {
+      const clone = element.cloneNode(true) as HTMLElement;
+      for (const media of clone.querySelectorAll(
+        "img, svg, video, iframe, canvas"
+      )) {
+        media.replaceWith(clone.ownerDocument.createTextNode("\0"));
+      }
+      return (clone.textContent ?? "")
+        .split("\0")
+        .map((text) => normalizedRichText(text));
+    })
+    .filter((text) => text.length > 0);
 }
 
 function richEditorContainsHtmlText(editor: HTMLElement, html: string): boolean {
   const expected = normalizedRichText(htmlToPlainText(html));
   const actual = normalizedRichText(editor.textContent ?? "");
-  return expected.length === 0 ? !hasEditorContent(editor) : actual.includes(expected);
+  if (expected.length === 0) {
+    return true;
+  }
+  if (actual.includes(expected)) {
+    return true;
+  }
+  const blocks = expectedRichTextBlocks(html);
+  return blocks.length > 0 && blocks.every((block) => actual.includes(block));
+}
+
+function richEditorReadbackMismatch(
+  editor: HTMLElement,
+  html: string
+): string {
+  const actual = normalizedRichText(editor.textContent ?? "");
+  const missingBlocks = expectedRichTextBlocks(html).filter(
+    (block) => !actual.includes(block)
+  );
+  const missingSummary = missingBlocks
+    .slice(0, 4)
+    .map((block) => JSON.stringify(block.slice(0, 80)))
+    .join(", ");
+  return `The rich-text editor did not preserve the replacement article body (actualLength=${actual.length}; missingBlocks=${
+    missingSummary || "none"
+  }).`;
 }
 
 async function clearEditor(
@@ -1753,9 +2093,9 @@ async function clearEditor(
     if (!hasEditorContent(editor)) {
       return editor;
     }
-    editor.focus();
+    focusEditor(editor);
     selectEditorContents(editor);
-    const selection = window.getSelection();
+    const selection = editor.ownerDocument.defaultView?.getSelection();
     if (!selection || selection.rangeCount === 0 || !selectionIsInside(editor)) {
       throw new Error(
         "The existing editor content could not be selected safely; no replacement was inserted."
@@ -1784,7 +2124,7 @@ async function insertIntoEditor(
   definition: PlatformDomDefinition,
   runtime?: DomAdapterRuntime
 ): Promise<void> {
-  editor.focus();
+  focusEditor(editor);
   const useMarkdown =
     definition.contentMode === "markdown" ||
     (definition.contentMode === "adaptive" &&
@@ -1887,7 +2227,7 @@ async function insertIntoEditor(
       let currentEditor = await clearEditor(resolveEditor);
       await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       currentEditor = resolveEditor() ?? currentEditor;
-      currentEditor.focus();
+      focusEditor(currentEditor);
       selectEditorContents(currentEditor);
       let accepted = false;
       if (typeof DataTransfer !== "undefined" && typeof ClipboardEvent !== "undefined") {
@@ -1953,13 +2293,13 @@ async function insertIntoEditor(
     : await clearEditor(resolveEditor);
   await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
   currentEditor = resolveEditor() ?? currentEditor;
-  currentEditor.focus();
+  focusEditor(currentEditor);
   selectEditorContents(currentEditor);
   const editorFocused = await waitFor(() => {
     const liveEditor = resolveEditor();
     return Boolean(
       liveEditor &&
-      document.activeElement === liveEditor &&
+      liveEditor.ownerDocument.activeElement === liveEditor &&
       selectionIsInside(liveEditor)
     );
   }, 1_000);
@@ -1969,7 +2309,22 @@ async function insertIntoEditor(
     );
   }
   let accepted = false;
-  if (typeof DataTransfer !== "undefined" && typeof ClipboardEvent !== "undefined") {
+  let pasteApplied = false;
+  if (definition.preferDirectDomInsert) {
+    replaceEditorHtml(currentEditor, prepared.html);
+    dispatchEditorInput(currentEditor, "insertFromPaste");
+    pasteApplied = await waitFor(() => {
+      const liveEditor = resolveEditor();
+      return Boolean(
+        liveEditor &&
+          hasEditorContent(liveEditor) &&
+          richEditorContainsHtmlText(liveEditor, prepared.html)
+      );
+    }, 1_000);
+  } else if (
+    typeof DataTransfer !== "undefined" &&
+    typeof ClipboardEvent !== "undefined"
+  ) {
     const transfer = new DataTransfer();
     transfer.setData("text/html", prepared.html);
     transfer.setData("text/plain", htmlToPlainText(prepared.html));
@@ -1980,25 +2335,25 @@ async function insertIntoEditor(
         clipboardData: transfer
       })
     );
+    pasteApplied =
+      accepted &&
+      (await waitFor(() => {
+        const liveEditor = resolveEditor();
+        if (
+          !liveEditor ||
+          !hasEditorContent(liveEditor) ||
+          !richEditorContainsHtmlText(liveEditor, prepared.html)
+        ) {
+          return false;
+        }
+        if (replaceExistingByPaste && prepared.images.length > 0) {
+          return prepared.images.every((image) =>
+            liveEditor.textContent?.includes(image.token)
+          );
+        }
+        return true;
+      }, 5_000));
   }
-  const pasteApplied =
-    accepted &&
-    (await waitFor(() => {
-      const liveEditor = resolveEditor();
-      if (
-        !liveEditor ||
-        !hasEditorContent(liveEditor) ||
-        !richEditorContainsHtmlText(liveEditor, prepared.html)
-      ) {
-        return false;
-      }
-      if (replaceExistingByPaste && prepared.images.length > 0) {
-        return prepared.images.every((image) =>
-          liveEditor.textContent?.includes(image.token)
-        );
-      }
-      return true;
-    }, 5_000));
   currentEditor = resolveEditor() ?? currentEditor;
   if (replaceExistingByPaste && !pasteApplied) {
     throw new Error(
@@ -2017,10 +2372,11 @@ async function insertIntoEditor(
       );
     }
     const persistedEditor = resolveEditor() ?? currentEditor;
-    if (!richEditorContainsHtmlText(persistedEditor, payload.html)) {
-      throw new Error(
-        "The rich-text editor did not preserve the replacement article body."
-      );
+    if (
+      !definition.skipFinalRichTextReadback &&
+      !richEditorContainsHtmlText(persistedEditor, payload.html)
+    ) {
+      throw new Error(richEditorReadbackMismatch(persistedEditor, payload.html));
     }
     return;
   }
@@ -2044,15 +2400,13 @@ async function insertIntoEditor(
   }
   const finalizedEditor = resolveEditor() ?? currentEditor;
   if (!richEditorContainsHtmlText(finalizedEditor, payload.html)) {
-    throw new Error(
-      "The rich-text editor did not preserve the replacement article body."
-    );
+    throw new Error(richEditorReadbackMismatch(finalizedEditor, payload.html));
   }
 }
 
 function hasSaveEvidence(definition: PlatformDomDefinition): boolean {
   for (const selector of definition.saveEvidenceSelectors) {
-    for (const element of document.querySelectorAll<HTMLElement>(selector)) {
+    for (const element of queryAllDeep<HTMLElement>(selector)) {
       if (
         element.getClientRects().length > 0 &&
         definition.saveEvidenceText.test(element.textContent ?? "")
@@ -2068,7 +2422,7 @@ function saveEvidenceSignature(definition: PlatformDomDefinition): string {
   return definition.saveEvidenceSelectors
     .flatMap((selector) =>
       Array.from(
-        document.querySelectorAll<HTMLElement>(selector),
+        queryAllDeep<HTMLElement>(selector),
         (element) =>
           [
             element.textContent?.trim() ?? "",
@@ -2132,7 +2486,9 @@ export async function applyDraftToVisibleEditor(
   await activateDraftEditor(payload.platform, definition);
   const title = await resolveTitle(payload.platform, definition, payload.title);
   const resolveEditor = (): HTMLElement | undefined =>
-    queryFirst(definition.editorSelectors, title);
+    payload.platform === "baijiahao"
+      ? resolveBaijiahaoEditor(title)
+      : queryFirst(definition.editorSelectors, title);
   const editor = resolveEditor();
   if (!title || !isEditableTitle(title) || !editor) {
     const titleState = !title
@@ -2142,8 +2498,16 @@ export async function applyDraftToVisibleEditor(
         : "not-editable";
     return {
       errorCode: "editor-not-found",
-      message: `The visible draft editor was not recognized (title=${titleState}, body=${
+      message: `The visible draft editor was not recognized (${
+        payload.platform === "baijiahao"
+          ? `adapter=${BAIJIAHAO_ADAPTER_REVISION}; `
+          : ""
+      }title=${titleState}, body=${
         editor ? "found" : "missing"
+      }${
+        payload.platform === "baijiahao"
+          ? `; editor candidates: ${summarizeBaijiahaoEditorCandidates(title)}; title region: ${summarizeBaijiahaoTitleRegion()}`
+          : ""
       }; visible controls: ${summarizeVisibleEditors()}). Sign in, open a draft, and retry.`,
       saved: false
     };
@@ -2161,9 +2525,15 @@ export async function applyDraftToVisibleEditor(
           ? "invalid-inline-image"
           : "editor-update-unconfirmed",
       message:
-        error instanceof Error
-          ? error.message
-          : "The platform did not confirm all image uploads.",
+        payload.platform === "baijiahao"
+          ? `adapter=${BAIJIAHAO_ADAPTER_REVISION}; ${
+              error instanceof Error
+                ? error.message
+                : "The platform did not confirm all image uploads."
+            }`
+          : error instanceof Error
+            ? error.message
+            : "The platform did not confirm all image uploads.",
       saved: false,
       unknown: true
     };
@@ -2184,6 +2554,7 @@ export async function applyDraftToVisibleEditor(
     });
   }
 
+  let saveEvidenceBaseline = initialSaveStatus;
   if (definition.saveActionText) {
     const saveActionTexts = Array.isArray(definition.saveActionText)
       ? definition.saveActionText
@@ -2200,23 +2571,34 @@ export async function applyDraftToVisibleEditor(
         unknown: true
       };
     }
+    if (definition.requireSaveEvidenceAfterAction) {
+      saveEvidenceBaseline = saveEvidenceSignature(definition);
+    }
     saveAction.click();
   }
 
   if (!(await waitForSaveEvidence(
     definition,
-    initialSaveStatus,
+    saveEvidenceBaseline,
     definition.deferSaveEvidenceToReload ? 3_000 : 20_000
   ))) {
     if (definition.deferSaveEvidenceToReload) {
       const completedEditor = resolveEditor() ?? editor;
+      const markdownReadback =
+        definition.contentMode === "markdown" || isTextArea(completedEditor);
       const bodyText = isTextArea(completedEditor)
         ? markdownEditorText(completedEditor)
-        : markdownEditorVisibleText(completedEditor);
+        : definition.contentMode === "markdown"
+          ? markdownEditorVisibleText(completedEditor)
+          : editableText(completedEditor);
       return {
-        bodyText: normalizedMarkdownDocument(bodyText),
+        bodyText: markdownReadback
+          ? normalizedMarkdownDocument(bodyText)
+          : normalizedRichText(bodyText),
         draftUrl: location.href,
-        imageCount: (bodyText.match(/!\[[^\]]*\]\(https?:\/\//g) ?? []).length,
+        imageCount: markdownReadback
+          ? (bodyText.match(/!\[[^\]]*\]\(https?:\/\//g) ?? []).length
+          : completedEditor.querySelectorAll("img").length,
         message:
           "The editor accepted the draft; persistence will be verified after reload.",
         saved: true

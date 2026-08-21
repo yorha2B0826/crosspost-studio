@@ -30,6 +30,28 @@ export const NEW_DRAFT_URLS: Record<BrowserPlatform, string> = {
   zhihu: "https://zhuanlan.zhihu.com/write"
 };
 
+export interface DraftTabCandidate {
+  active?: boolean;
+  id?: number;
+  lastAccessed?: number;
+  url?: string;
+}
+
+export function selectPreferredDraftTab<T extends DraftTabCandidate>(
+  candidates: T[]
+): T | undefined {
+  return candidates
+    .filter(
+      (candidate): candidate is T & { id: number; url: string } =>
+        candidate.id !== undefined && candidate.url !== undefined
+    )
+    .toSorted(
+      (first, second) =>
+        Number(Boolean(second.active)) - Number(Boolean(first.active)) ||
+        (second.lastAccessed ?? 0) - (first.lastAccessed ?? 0)
+    )[0];
+}
+
 function normalizedComparableUrl(value: string): string | undefined {
   try {
     const url = new URL(value);
